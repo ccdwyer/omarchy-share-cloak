@@ -55,7 +55,9 @@ function captureClient(c) {
         fullscreen: Number(c.fullscreen) || 0,
         fullscreenClient: Number(c.fullscreenClient) || 0,
         monitor: c.monitor,
-        pinned: !!c.pinned
+        pinned: !!c.pinned,
+        tileOrder: c.tileOrder !== undefined ? Number(c.tileOrder) : 0,
+        focusHistoryID: c.focusHistoryID !== undefined ? Number(c.focusHistoryID) : undefined
     }
 }
 
@@ -94,12 +96,48 @@ function addMutation(session, mut) {
     return row
 }
 
-function recordMoves(session, marked) {
+function recordMoves(session, marked, tileRanks) {
     var list = marked || []
-    for (var i = 0; i < list.length; i++) {
+    var ranks = tileRanks || {}
+    var i
+    if (!Object.keys(ranks).length) {
+        var byWs = {}
+        for (i = 0; i < list.length; i++) {
+            var src = list[i]
+            if (!src || src.floating)
+                continue
+            var ws = String(src.workspaceName || (src.workspace && src.workspace.name) || src.workspaceId || "")
+            if (!byWs[ws])
+                byWs[ws] = []
+            byWs[ws].push(src)
+        }
+        for (var wsName in byWs) {
+            if (!byWs.hasOwnProperty(wsName))
+                continue
+            var group = byWs[wsName]
+            group.sort(function(a, b) {
+                var ay = a.at ? Number(a.at[1]) : 0
+                var byv = b.at ? Number(b.at[1]) : 0
+                if (ay !== byv)
+                    return ay - byv
+                var ax = a.at ? Number(a.at[0]) : 0
+                var bx = b.at ? Number(b.at[0]) : 0
+                return ax - bx
+            })
+            for (i = 0; i < group.length; i++) {
+                var addr = String(group[i].address || "").toLowerCase()
+                ranks[addr] = i
+            }
+        }
+    }
+    for (i = 0; i < list.length; i++) {
         var c = captureClient(list[i])
         if (!c || !c.address)
             continue
+        var key = String(c.address).toLowerCase()
+        var order = list[i].tileOrder
+        if (order === undefined)
+            order = ranks[key]
         addMutation(session, {
             kind: "move",
             owned: true,
@@ -112,7 +150,10 @@ function recordMoves(session, marked) {
             at: c.at,
             size: c.size,
             floating: c.floating,
-            monitor: c.monitor
+            fullscreen: c.fullscreen,
+            fullscreenClient: c.fullscreenClient,
+            monitor: c.monitor,
+            tileOrder: order !== undefined ? Number(order) : 0
         })
     }
 }

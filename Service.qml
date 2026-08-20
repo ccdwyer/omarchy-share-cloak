@@ -54,6 +54,7 @@ Item {
   property bool probeReady: false
   property bool hyprlandEventsLive: false
   property bool screencastEventSeen: false
+  property var lastEventAt: 0
   property bool socketWanted: true
   property int socketBackoffMs: 250
   property string hyprVersion: ""
@@ -175,6 +176,8 @@ Item {
     var ev = Events.parseLine(line)
     if (!ev)
       return
+    root.lastEventAt = Date.now()
+    root.hyprlandEventsLive = true
     if (ev.name === "screencast") {
       root.screencastEventSeen = true
       root.onScreencast(ev.fields)
@@ -356,7 +359,7 @@ Item {
       else
         unmarked.push(clients[i])
     }
-    Session.recordMoves(session, marked)
+    Session.recordMoves(session, marked, Clients.tileOrderMap(clients))
     root.session = session
     root.pendingMarked = marked.slice()
     root.pendingUnmarked = unmarked.slice()
@@ -872,17 +875,22 @@ Item {
       result = PwDump.detect(trimmed)
     if (!result)
       return
+    var stale = !root.lastEventAt || (Date.now() - Number(root.lastEventAt) > 4000)
+    var allowPw = !root.screencastEventSeen || stale
     if (result.screencasting) {
       var kind = result.windowShare ? "window" : "monitor"
       State.setShare(true, kind, "pw-dump")
       root.publish()
-      if (Config.autoCloak && !State.userOverride && !State.isCloaked() && !root.screencastEventSeen)
+      if (Config.autoCloak && !State.userOverride && !State.isCloaked() && allowPw)
         root.beginCloak("pw-dump")
-    } else if (!root.screencastEventSeen && State.shareSource === "pw-dump" && State.shareActive) {
-      State.setShare(false, "none", "pw-dump")
-      root.publish()
-      if (State.isCloaked() && root.session && root.session.reason === "pw-dump")
-        root.beginUncloak("pw-dump-end")
+    } else if (allowPw && State.shareActive) {
+      var fromPw = State.shareSource === "pw-dump" || stale
+      if (fromPw) {
+        State.setShare(false, "none", "pw-dump")
+        root.publish()
+        if (State.isCloaked() && root.session && root.session.reason !== "manual")
+          root.beginUncloak("pw-dump-end")
+      }
     }
   }
 
@@ -904,6 +912,11 @@ Item {
     snap.autoCloak = Config.autoCloak
     snap.marks = Config.marks.length
     return JSON.stringify(snap)
+  }
+
+  function installBinds() {
+    enqueueWork(["hyprctl", "keyword", "bind", "SUPER,F9,exec,omarchy-shell shell call io.github.chris.share-cloak toggle ''"], null)
+    enqueueWork(["hyprctl", "keyword", "bind", "SUPER,F10,exec,omarchy-shell shell call io.github.chris.share-cloak markFocused ''"], null)
   }
 
   function ping() { return "ok" }
@@ -1014,6 +1027,7 @@ Item {
       if (!event)
         return
       root.hyprlandEventsLive = true
+      root.lastEventAt = Date.now()
       if (eventSock.connected)
         eventSock.connected = false
       var line = String(event.name || "") + ">>" + String(event.data || "")
@@ -1147,6 +1161,7 @@ Item {
     root.applyHostSettings()
     probeWhichProc.running = true
     versionProc.running = true
+    root.installBinds()
     root.publish()
   }
 }

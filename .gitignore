@@ -9,8 +9,10 @@ dist/
 .fix_prompt_r1.md
 .fix_prompt_r2.md
 .fix_prompt_r3.md
+.fix_prompt_r4.md
 .gpt_review_*
 .review_prompt.md
 .review_prompt2.md
 .review_prompt3.md
+.review_prompt4.md
 .serena/

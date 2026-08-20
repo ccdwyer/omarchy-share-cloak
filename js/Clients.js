@@ -126,8 +126,48 @@ function capture(client) {
         pinned: !!client.pinned,
         mapped: client.mapped !== false,
         alpha: client.alpha !== undefined && client.alpha !== null ? Number(client.alpha) : undefined,
-        dimaround: client.dimaround !== undefined && client.dimaround !== null ? Number(client.dimaround) : undefined
+        dimaround: client.dimaround !== undefined && client.dimaround !== null ? Number(client.dimaround) : undefined,
+        focusHistoryID: client.focusHistoryID !== undefined ? Number(client.focusHistoryID) : (client.focusHistoryId !== undefined ? Number(client.focusHistoryId) : undefined),
+        grouped: client.grouped
     }
+}
+
+function tileOrderMap(clients) {
+    var list = clients || []
+    var byWs = {}
+    var i
+    for (i = 0; i < list.length; i++) {
+        var c = list[i]
+        if (!c || c.floating)
+            continue
+        var cap = c.address && c.at ? c : capture(c)
+        if (!cap || !cap.address)
+            continue
+        var ws = cap.workspaceName || String(cap.workspaceId || "")
+        if (!byWs[ws])
+            byWs[ws] = []
+        byWs[ws].push(cap)
+    }
+    var ranks = {}
+    for (var wsName in byWs) {
+        if (!byWs.hasOwnProperty(wsName))
+            continue
+        var group = byWs[wsName]
+        group.sort(function(a, b) {
+            var ay = a.at ? Number(a.at[1]) : 0
+            var by = b.at ? Number(b.at[1]) : 0
+            if (ay !== by)
+                return ay - by
+            var ax = a.at ? Number(a.at[0]) : 0
+            var bx = b.at ? Number(b.at[0]) : 0
+            if (ax !== bx)
+                return ax - bx
+            return String(a.address) < String(b.address) ? -1 : 1
+        })
+        for (i = 0; i < group.length; i++)
+            ranks[group[i].address] = i
+    }
+    return ranks
 }
 
 function isOnCloak(client) {

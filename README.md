@@ -51,16 +51,14 @@ omarchy-shell shell rescanPlugins
 | Bar chip, left click | Same as Super+F9 |
 | Bar chip, right click | Open the mark list |
 
-The plugin does **not** write these into `hyprland.conf`. Bind them yourself. The Omarchy Quattro IPC verb is `omarchy-shell shell call` / `summon`:
+On plugin load the service installs these binds with `hyprctl keyword bind` (runtime, not a `hyprland.conf` edit). Super+F9 / Super+F10 work after `omarchy plugin add … --enable` without a further config change. They call:
 
 ```
-bind = SUPER, F9, exec, omarchy-shell shell call io.github.chris.share-cloak toggle ''
-bind = SUPER, F10, exec, omarchy-shell shell call io.github.chris.share-cloak markFocused ''
+omarchy-shell shell call io.github.chris.share-cloak toggle ''
+omarchy-shell shell call io.github.chris.share-cloak markFocused ''
 ```
 
-`call` always takes `<id> <method> <arg>`. No-argument methods pass an empty argument.
-
-If a bind collides, use the bar chip.
+`call` always takes `<id> <method> <arg>`. No-argument methods pass an empty argument. If a bind collides with one you already have, the bar chip still works; you can `hyprctl keyword unbind SUPER,F9`.
 
 ### What cloak does
 
@@ -83,7 +81,7 @@ Bar chip states: **cloak** (idle) / **CLOAK** (armed, watching for a share) / **
 - **One-frame flash on unsafe workspace switches.** While cloaked, a workspace event whose target is not in the safe list (the workspace(s) visible at cloak time) covers the output immediately. Safe-list switches never flicker. A one-frame flash of the unsafe workspace is possible; the zero-frame pattern is: share one output, keep unsafe workspaces on the other.
 - **Notifications are mako-only.** No dunst path. Only a mako config section that actually suppresses notifications is used. If none is configured, or add+re-read fails, the chip says `notifications: unmanaged`. A suppression mode the user already had on is left alone.
 - **Helper binary is optional.** `bin/cloak-probe` is built by `build.sh`. If it is missing, QML falls back to `compat/cloak-probe.sh` and, for share corroboration, to an in-process `pw-dump` JSON parse. Auto-cloak's primary trigger is Hyprland's `screencast` socket2 event, not the helper.
-- **Keybinds are yours to add.** The plugin never writes `hyprland.conf`.
+- **Runtime keybinds.** Super+F9 / F10 are installed with `hyprctl keyword bind` when the service starts. The plugin does not edit `hyprland.conf`.
 - **ON AIR frame tracks the layer-shell output the overlay landed on** (typically the focused / primary screen). The `screencast` event does not name which monitor is shared.
 - **Crash mid-cloak** leaves windows on `special:cloak`. On the next shell start, Share Cloak offers one-key restore (Super+F9) rather than mutating the layout unattended.
 
@@ -106,6 +104,8 @@ Marks (class + title regex) persist in `~/.local/state/share-cloak/marks.json`. 
 ./scripts/pack-plugin.sh
 node tests/run.js
 sh tests/probe-fallback.test.sh
+sh scripts/omarchy-plugin-validate.sh
+sh tests/live-roundtrip.sh          # 200-cycle hyprctl round-trip when Hyprland is running
 # optional, needs cargo:
 cargo test --manifest-path src/cloak-probe/Cargo.toml
 ```

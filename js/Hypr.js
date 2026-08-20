@@ -19,15 +19,29 @@ function addrSpec(value) {
     return "address:" + normalizeAddress(value)
 }
 
-function quoteWorkspace(name) {
-    var n = String(name || "")
+function workspaceToken(name, id) {
+    var n = String(name || "").trim()
+    var nid = id === undefined || id === null || id === "" ? NaN : Number(id)
+    if (/[;,]/.test(n)) {
+        if (!isNaN(nid) && isFinite(nid) && nid !== 0)
+            return String(nid)
+        n = n.replace(/[;,]/g, "")
+    }
     if (!n)
-        return "1"
-    return n
+        return !isNaN(nid) && nid !== 0 ? String(nid) : "1"
+    if (/^-?[0-9]+$/.test(n))
+        return n
+    if (n.indexOf("special:") === 0 || n.indexOf("name:") === 0)
+        return n
+    return "name:" + n
 }
 
-function moveSilent(addr, workspace) {
-    return "dispatch movetoworkspacesilent " + quoteWorkspace(workspace) + "," + addrSpec(addr)
+function quoteWorkspace(name, id) {
+    return workspaceToken(name, id)
+}
+
+function moveSilent(addr, workspace, workspaceId) {
+    return "dispatch movetoworkspacesilent " + workspaceToken(workspace, workspaceId) + "," + addrSpec(addr)
 }
 
 function moveToCloak(addr) {
@@ -117,23 +131,85 @@ function dispatchMoveArgv(addr) {
     return ["hyprctl", "dispatch", "movetoworkspacesilent", CLOAK_WORKSPACE + "," + addrSpec(addr)]
 }
 
+function settiledCmd(addr) {
+    return "dispatch settiled " + addrSpec(addr)
+}
+
+function setfloatingCmd(addr) {
+    return "dispatch setfloating " + addrSpec(addr)
+}
+
+function fullscreenStateCmd(addr, internal, client) {
+    return "dispatch fullscreenstate " + Number(internal || 0) + " " + Number(client || 0) + "," + addrSpec(addr)
+}
+
+function geometryCmds(step) {
+    var cmds = []
+    if (!step || !step.address)
+        return cmds
+    if (step.floating)
+        cmds.push(setfloatingCmd(step.address))
+    else
+        cmds.push(settiledCmd(step.address))
+    if (step.at && step.at.length >= 2)
+        cmds.push(movePixel(step.address, step.at[0], step.at[1]))
+    if (step.size && step.size.length >= 2)
+        cmds.push(resizePixel(step.address, step.size[0], step.size[1]))
+    if (step.fullscreen)
+        cmds.push(fullscreenStateCmd(step.address, step.fullscreen, step.fullscreenClient))
+    return cmds
+}
+
 function restoreCommands(plan) {
     var steps = (plan && plan.steps) || plan || []
-    var cmds = []
-    for (var i = 0; i < steps.length; i++) {
+    var props = []
+    var tiled = []
+    var floating = []
+    var i
+    for (i = 0; i < steps.length; i++) {
         var step = steps[i]
-        if (!step || !step.address)
+        if (!step)
             continue
-        if (step.kind === "alpha")
-            cmds.push(alphaCmd(step.address, step.from === undefined ? 1 : step.from))
-        else if (step.kind === "dimaround")
-            cmds.push(dimaroundCmd(step.address, !!step.from))
+        if (step.kind === "alpha" && step.address)
+            props.push(alphaCmd(step.address, step.from === undefined ? 1 : step.from))
+        else if (step.kind === "dimaround" && step.address)
+            props.push(dimaroundCmd(step.address, !!step.from))
         else if (step.kind === "move" || step.kind === "catch-all-move") {
-            cmds.push(moveSilent(step.address, step.fromWorkspace || step.workspace || "1"))
-            if (step.floating && step.at && step.size) {
-                cmds.push(movePixel(step.address, step.at[0], step.at[1]))
-                cmds.push(resizePixel(step.address, step.size[0], step.size[1]))
-            }
+            if (step.floating)
+                floating.push(step)
+            else
+                tiled.push(step)
+        }
+    }
+    tiled.sort(function(a, b) {
+        var ao = Number(a.tileOrder)
+        var bo = Number(b.tileOrder)
+        if (isNaN(ao))
+            ao = 0
+        if (isNaN(bo))
+            bo = 0
+        if (ao !== bo)
+            return ao - bo
+        return String(a.address || "") < String(b.address || "") ? -1 : 1
+    })
+    var cmds = props.slice()
+    function emitMove(step) {
+        if (!step.address)
+            return
+        cmds.push(moveSilent(step.address, step.fromWorkspace || step.workspace || "1", step.fromWorkspaceId))
+        var geom = geometryCmds(step)
+        for (var g = 0; g < geom.length; g++)
+            cmds.push(geom[g])
+    }
+    for (i = 0; i < tiled.length; i++)
+        emitMove(tiled[i])
+    for (i = 0; i < floating.length; i++)
+        emitMove(floating[i])
+    for (i = 0; i < tiled.length; i++) {
+        var settle = geometryCmds(tiled[i])
+        for (var s = 0; s < settle.length; s++) {
+            if (settle[s].indexOf("movewindowpixel") >= 0 || settle[s].indexOf("resizewindowpixel") >= 0)
+                cmds.push(settle[s])
         }
     }
     return cmds

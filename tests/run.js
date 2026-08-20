@@ -267,6 +267,50 @@ test("hypr: restore floating geometry after move", () => {
   assert.ok(batch.indexOf("resizewindowpixel exact 300 200,address:0xabc") >= 0)
 })
 
+test("hypr: restore tiled layout order and geometry", () => {
+  const cmds = Hypr.restoreCommands({
+    steps: [
+      {
+        kind: "move",
+        address: "0xbbb",
+        fromWorkspace: "1",
+        fromWorkspaceId: 1,
+        floating: false,
+        at: [400, 0],
+        size: [400, 800],
+        tileOrder: 1
+      },
+      {
+        kind: "move",
+        address: "0xaaa",
+        fromWorkspace: "1",
+        fromWorkspaceId: 1,
+        floating: false,
+        at: [0, 0],
+        size: [400, 800],
+        tileOrder: 0
+      }
+    ]
+  })
+  const batch = Hypr.formatBatch(cmds)
+  const firstTiled = batch.indexOf("movetoworkspacesilent 1,address:0xaaa")
+  const secondTiled = batch.indexOf("movetoworkspacesilent 1,address:0xbbb")
+  assert.ok(firstTiled >= 0)
+  assert.ok(secondTiled > firstTiled, "tiled restore follows tileOrder")
+  assert.ok(batch.indexOf("settiled address:0xaaa") >= 0)
+  assert.ok(batch.indexOf("movewindowpixel exact 0 0,address:0xaaa") >= 0)
+  assert.ok(batch.indexOf("resizewindowpixel exact 400 800,address:0xaaa") >= 0)
+})
+
+test("hypr: workspace names with separators fall back to id", () => {
+  const tok = Hypr.workspaceToken("foo,bar", 4)
+  assert.strictEqual(tok, "4")
+  const tokSafe = Hypr.workspaceToken("special:cloak", -98)
+  assert.strictEqual(tokSafe, "special:cloak")
+  const named = Hypr.workspaceToken("code", 2)
+  assert.strictEqual(named, "name:code")
+})
+
 test("mako: guessed names without config are unmanaged", () => {
   const info = Mako.inspect(fixture("mako-modes-default.txt"), 0, "")
   assert.strictEqual(info.alreadyActive, false)
@@ -592,6 +636,11 @@ function applyRestoreSim(clients, plan) {
       live.workspace = { id: s.fromWorkspaceId || Number(s.fromWorkspace) || 1, name: s.fromWorkspace }
       live.workspaceName = s.fromWorkspace
       live.workspaceId = s.fromWorkspaceId || Number(s.fromWorkspace) || 1
+      if (s.at)
+        live.at = s.at.slice()
+      if (s.size)
+        live.size = s.size.slice()
+      live.floating = !!s.floating
     }
     if (s.kind === "alpha")
       live.alpha = s.from
@@ -671,8 +720,11 @@ test("round-trip soak: 200 randomized cloak/uncloak cycles with ownership", () =
         assert.strictEqual(now.workspaceName, "2", "cycle " + cycle + " user move preserved")
         return
       }
-      if (Marks.isMarked(c, marks))
+      if (Marks.isMarked(c, marks)) {
         assert.strictEqual(now.workspaceName, c.workspaceName, "cycle " + cycle + " marked round-trip")
+        assert.strictEqual(JSON.stringify(now.at), JSON.stringify(c.at), "cycle " + cycle + " tiled/float geom x/y")
+        assert.strictEqual(JSON.stringify(now.size), JSON.stringify(c.size), "cycle " + cycle + " tiled/float geom size")
+      }
       if (wasUserDimmed)
         assert.strictEqual(now.alpha, 0.11, "cycle " + cycle + " user dim preserved")
       else if (!Marks.isMarked(c, marks))

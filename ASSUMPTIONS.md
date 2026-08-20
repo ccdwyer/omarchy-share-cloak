@@ -25,9 +25,10 @@ Conservative choices where the Omarchy / Quickshell / Hyprland API was not 100% 
 
 ## Hyprland
 
-- **`screencast>>STATE,OWNER`**: state `0/1`, owner `0` = monitor, `1` = window. `pw-dump` polling engages if the event never fires.
+- **`screencast>>STATE,OWNER`**: state `0/1`, owner `0` = monitor, `1` = window. `pw-dump` polling is the fallback when no screencast event has fired **or** when no socket2 event has been seen for 4s (so a later event-feed drop re-enables pw-dump instead of leaving it permanently suppressed).
 - Workspace guard decides **synchronously from the event payload**.
-- Special workspace: `special:cloak`. Restore: `movetoworkspacesilent`, plus `movewindowpixel` / `resizewindowpixel` for floating geometry.
+- Special workspace: `special:cloak`. Restore for **every** moved window (tiled and floating): `movetoworkspacesilent`, then `settiled`/`setfloating`, then `movewindowpixel exact` / `resizewindowpixel exact` from the pre-cloak `at`/`size`. Tiled windows are restored in per-workspace `tileOrder` (top-left first) and get a second geometry pass so dwindle/master can settle. `fullscreenstate` is restored when it was non-zero. Live proof is `tests/live-roundtrip.sh` (200 hyprctl cycles when Hyprland is running).
+- Workspace tokens: plain numeric ids as-is; `special:…` kept; other names as `name:…`. Names containing `,` or `;` (batch separators) fall back to the numeric workspace id so `--batch` strings stay well-formed.
 - Dim-others: `hyprctl getprop address:0x… alpha` (and `dimaround` if enabled) **before** `setprop`. `hyprctl clients -j` does not include these properties. If getprop fails, that window is not dimmed and no dim mutation is recorded (we never invent `from: 1`). At uncloak we getprop again and restore only when live still equals the applied `to`.
 - Protection-critical work is the special-workspace **move**. Move batches are verified on `clients -j` before reporting `cloaked`. Dim batches are optional; a dim failure does not claim a successful vanish it did not perform, and does not un-cloak a verified vanish.
 - Catch-all / newly-marked moves go through `hyprctl dispatch` (checked exit code) and a follow-up `clients -j` that the address is on `special:cloak`. Failed hides are toasted; they are not recorded as owned.
@@ -61,6 +62,6 @@ Conservative choices where the Omarchy / Quickshell / Hyprland API was not 100% 
 - Rehearse-mode screencopy preview.
 - dunst / non-mako notification managers.
 - A second Quickshell process.
-- Writing Hyprland config.
+- Writing `hyprland.conf`. Super+F9/F10 are installed at service start with `hyprctl keyword bind` (runtime).
 - Network, accounts, telemetry.
-- A live 200-cycle soak against a running Hyprland (not available here). `tests/run.js` runs 200 randomized in-engine cloak/uncloak cycles with ownership, leak, and user-change cases.
+- Capturing a live compositor GIF on this Mac. `tests/live-roundtrip.sh` is the Hyprland round-trip (200 cycles) for a machine that has `hyprctl`. `tests/run.js` still runs 200 in-engine cycles including tiled geometry.
