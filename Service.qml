@@ -987,13 +987,13 @@ Item {
 
   function installOneBind(key, method, bindsText, done) {
     var binds = Binds.parseBinds(bindsText)
-    if (Binds.conflict(binds, Binds.SUPER, key, root.pluginId)) {
+    if (Binds.conflict(binds, Binds.SUPER, key, root.pluginId, method)) {
       State.setBindStatus("conflict", "Super+" + key + " is already bound — use the bar chip")
       if (done)
         done()
       return
     }
-    if (Binds.oursPresent(binds, Binds.SUPER, key, root.pluginId)) {
+    if (Binds.oursPresent(binds, Binds.SUPER, key, root.pluginId, method)) {
       root.ownedBinds = (root.ownedBinds || []).concat([{ key: key, method: method }])
       if (done)
         done()
@@ -1008,7 +1008,7 @@ Item {
       }
       enqueueWork(["hyprctl", "-j", "binds"], function(t2, c2) {
         var now = Number(c2) === 0 ? Binds.parseBinds(t2) : []
-        if (Binds.oursPresent(now, Binds.SUPER, key, root.pluginId)) {
+        if (Binds.oursPresent(now, Binds.SUPER, key, root.pluginId, method)) {
           root.ownedBinds = (root.ownedBinds || []).concat([{ key: key, method: method }])
         } else {
           State.setBindStatus("failed", "Super+" + key + " bind did not stick — use the bar chip")
@@ -1022,14 +1022,10 @@ Item {
   function teardownBinds() {
     var list = (root.ownedBinds || []).slice()
     root.ownedBinds = []
-    if (!list.length)
+    var argv = Binds.unbindOwnedArgv(root.pluginDir, root.pluginId, list)
+    if (!argv)
       return
-    enqueueWork(["hyprctl", "-j", "binds"], function(text, code) {
-      var binds = Number(code) === 0 ? Binds.parseBinds(text) : []
-      var keys = Binds.keysToUnbind(list, binds, root.pluginId)
-      for (var i = 0; i < keys.length; i++)
-        enqueueWork(Binds.unbindArgv(keys[i]), null)
-    })
+    Quickshell.execDetached(argv)
   }
 
   function ping() { return "ok" }

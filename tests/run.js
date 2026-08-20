@@ -306,13 +306,15 @@ test("binds: conflict vs ours", () => {
     { modmask: 64, key: "F9", dispatcher: "exec", arg: "kitty" },
     { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
   ]
-  assert.ok(Binds.conflict(binds, 64, "F9", "io.github.chris.share-cloak"))
-  assert.strictEqual(Binds.conflict(binds, 64, "F10", "io.github.chris.share-cloak"), null)
-  assert.ok(Binds.oursPresent(binds, 64, "F10", "io.github.chris.share-cloak"))
+  const id = "io.github.chris.share-cloak"
+  assert.ok(Binds.conflict(binds, 64, "F9", id, "toggle"))
+  assert.strictEqual(Binds.conflict(binds, 64, "F10", id, "markFocused"), null)
+  assert.ok(Binds.oursPresent(binds, 64, "F10", id, "markFocused"))
+  assert.strictEqual(Binds.oursPresent(binds, 64, "F10", id, "toggle"), false)
 })
 
 test("binds: teardown unbinds only live plugin actions", () => {
-  const owned = [{ key: "F9" }, { key: "F10" }]
+  const owned = [{ key: "F9", method: "toggle" }, { key: "F10", method: "markFocused" }]
   const stillOurs = [
     { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak toggle ''" },
     { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
@@ -327,17 +329,44 @@ test("binds: teardown unbinds only live plugin actions", () => {
 })
 
 test("binds: mixed plugin+user combo is not unbound", () => {
-  const owned = [{ key: "F9" }, { key: "F10" }]
+  const owned = [{ key: "F9", method: "toggle" }, { key: "F10", method: "markFocused" }]
   const mixed = [
     { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak toggle ''" },
     { modmask: 64, key: "F9", dispatcher: "exec", arg: "kitty" },
     { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
   ]
-  assert.ok(Binds.oursPresent(mixed, 64, "F9", "io.github.chris.share-cloak"))
-  assert.ok(Binds.conflict(mixed, 64, "F9", "io.github.chris.share-cloak"))
-  assert.strictEqual(Binds.exclusivelyOurs(mixed, 64, "F9", "io.github.chris.share-cloak"), false)
-  assert.strictEqual(Binds.exclusivelyOurs(mixed, 64, "F10", "io.github.chris.share-cloak"), true)
-  assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, mixed, "io.github.chris.share-cloak")), JSON.stringify(["F10"]))
+  const id = "io.github.chris.share-cloak"
+  assert.ok(Binds.oursPresent(mixed, 64, "F9", id, "toggle"))
+  assert.ok(Binds.conflict(mixed, 64, "F9", id, "toggle"))
+  assert.strictEqual(Binds.exclusivelyOurs(mixed, 64, "F9", id, "toggle"), false)
+  assert.strictEqual(Binds.exclusivelyOurs(mixed, 64, "F10", id, "markFocused"), true)
+  assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, mixed, id)), JSON.stringify(["F10"]))
+})
+
+test("binds: same-plugin different method is not unbound", () => {
+  const owned = [{ key: "F9", method: "toggle" }, { key: "F10", method: "markFocused" }]
+  const id = "io.github.chris.share-cloak"
+  const mixedMethod = [
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak toggle ''" },
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak status ''" },
+    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
+  ]
+  assert.ok(Binds.oursPresent(mixedMethod, 64, "F9", id, "toggle"))
+  assert.ok(Binds.isOurs(mixedMethod[1], id, "status"))
+  assert.strictEqual(Binds.isOurs(mixedMethod[1], id, "toggle"), false)
+  assert.ok(Binds.conflict(mixedMethod, 64, "F9", id, "toggle"))
+  assert.strictEqual(Binds.exclusivelyOurs(mixedMethod, 64, "F9", id, "toggle"), false)
+  assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, mixedMethod, id)), JSON.stringify(["F10"]))
+  const onlyStatus = [
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak status ''" }
+  ]
+  assert.strictEqual(JSON.stringify(Binds.keysToUnbind([{ key: "F9", method: "toggle" }], onlyStatus, id)), JSON.stringify([]))
+  const argv = Binds.unbindOwnedArgv("/plugin", id, owned)
+  assert.strictEqual(argv[0], "sh")
+  assert.ok(argv[1].indexOf("compat/unbind-owned.sh") >= 0)
+  assert.strictEqual(argv[2], id)
+  assert.ok(argv.indexOf("F9:toggle") >= 0)
+  assert.ok(argv.indexOf("F10:markFocused") >= 0)
 })
 
 test("hypr: workspace names with separators fall back to id", () => {

@@ -19,4 +19,17 @@ echo "$out" | grep -q '"equal":true'
 out=$("$SH" session-check "$FIX/session-v1.json")
 echo "$out" | grep -q '"cloaked":true'
 
+UNBIND="$ROOT/compat/unbind-owned.sh"
+chmod +x "$UNBIND"
+id="io.github.chris.share-cloak"
+keys=$("$UNBIND" --binds "$FIX/binds-ours.json" --dry-run "$id" F9:toggle F10:markFocused)
+echo "$keys" | grep -qx "F9"
+echo "$keys" | grep -qx "F10"
+mixed=$("$UNBIND" --binds "$FIX/binds-mixed-method.json" --dry-run "$id" F9:toggle F10:markFocused)
+echo "$mixed" | grep -qx "F10"
+if echo "$mixed" | grep -qx "F9"; then
+  echo "unbind-owned: F9 should not unbind when status shares the combo" >&2
+  exit 1
+fi
+
 echo "ok  probe-fallback"

@@ -51,7 +51,7 @@ omarchy-shell shell rescanPlugins
 | Bar chip, left click | Same as Super+F9 |
 | Bar chip, right click | Open the mark list |
 
-On plugin load the service reads `hyprctl -j binds`. Super+F9 / F10 are installed with `hyprctl keyword bind` only when that combo is free (or already ours). At teardown the service re-reads `hyprctl -j binds` and unbinds a combo only when **every** live binding on that combo is this plugin's command — a user binding that shares Super+F9 is left alone. If a combo is taken or `hyprctl` fails, the bar chip is the fallback and the chip tooltip says so. They call:
+On plugin load the service reads `hyprctl -j binds`. Super+F9 / F10 are installed with `hyprctl keyword bind` only when that combo is free (or already the exact owned command). Teardown launches a detached helper (`compat/unbind-owned.sh`) that re-reads live binds after the service is gone and unbinds a combo only when **every** live binding is this plugin's **expected method** with an empty argument (`toggle ''` / `markFocused ''`). A same-combo `status ''` or a user bind is left alone. If a combo is taken or `hyprctl` fails, the bar chip is the fallback and the chip tooltip says so. They call:
 
 ```
 omarchy-shell shell call io.github.chris.share-cloak toggle ''
@@ -82,7 +82,7 @@ Bar chip states: **cloak** (idle) / **CLOAK** (armed, watching for a share) / **
 - **One-frame flash on unsafe workspace switches.** While cloaked, a workspace event whose target is not in the safe list (the workspace(s) visible at cloak time) covers the output immediately. Safe-list switches never flicker. A one-frame flash of the unsafe workspace is possible; the zero-frame pattern is: share one output, keep unsafe workspaces on the other.
 - **Notifications are mako-only.** No dunst path. Only a mako config section that actually suppresses notifications is used. If none is configured, or add+re-read fails, the chip says `notifications: unmanaged`. A suppression mode the user already had on is left alone.
 - **Helper binary is optional.** `bin/cloak-probe` is built by `build.sh`. If it is missing, QML falls back to `compat/cloak-probe.sh` and, for share corroboration, to an in-process `pw-dump` JSON parse. Auto-cloak's primary trigger is Hyprland's `screencast` socket2 event, not the helper.
-- **Runtime keybinds.** Super+F9 / F10 are installed only if free and tracked as owned. Teardown re-reads live binds and unbinds a combo only when every live binding on it is this plugin's command. A mixed plugin+user combo is left untouched. Conflicts leave the bar chip as the control. No `hyprland.conf` edits.
+- **Runtime keybinds.** Super+F9 / F10 are installed only if free and tracked as owned (plugin id + expected method + empty arg). Teardown is a detached helper so it still runs after the service Item is destroyed. It re-reads live binds and unbinds a combo only when every live binding is that exact owned command. Mixed plugin+user or same-plugin/different-method combos are left untouched. Conflicts leave the bar chip as the control. No `hyprland.conf` edits.
 - **ON AIR frame tracks the layer-shell output the overlay landed on** (typically the focused / primary screen). The `screencast` event does not name which monitor is shared.
 - **Crash mid-cloak** leaves windows on `special:cloak`. On the next shell start, Share Cloak offers one-key restore (Super+F9) rather than mutating the layout unattended.
 
