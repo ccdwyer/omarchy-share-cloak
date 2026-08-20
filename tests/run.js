@@ -399,6 +399,62 @@ test("binds: same-plugin different method is not unbound", () => {
   assert.ok(argv.indexOf("F10:markFocused") >= 0)
 })
 
+test("binds: empty live list offers preferred combos", () => {
+  const p = Binds.plan([])
+  assert.strictEqual(p.needed, true)
+  assert.strictEqual(p.toAdd.length, 2)
+  assert.strictEqual(p.toAdd[0].keys, "SUPER + F9")
+  assert.strictEqual(p.toAdd[1].keys, "SUPER + F10")
+  const lua = Binds.luaBlock(p.toAdd)
+  assert.ok(lua.indexOf("o.bind(\"SUPER + F9\"") === 0)
+  assert.ok(lua.indexOf("omarchy-shell io.github.chris.share-cloak toggle ''") >= 0)
+  assert.ok(lua.indexOf("omarchy-shell io.github.chris.share-cloak markFocused ''") >= 0)
+  assert.ok(lua.indexOf("shell call") < 0)
+})
+
+test("binds: skips occupied combos and uses an alternate", () => {
+  const live = [
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "other", description: "voxtype" }
+  ]
+  const p = Binds.plan(live)
+  assert.strictEqual(p.needed, true)
+  const toggle = p.toAdd.filter((x) => x.desc === "Share Cloak toggle")[0]
+  assert.ok(toggle)
+  assert.strictEqual(toggle.chosen, "SUPER + ALT + F9")
+  assert.ok(p.note.indexOf("SUPER + ALT + F9") >= 0)
+})
+
+test("binds: already-ours hides the offer", () => {
+  const live = [
+    { modmask: 64, key: "F9", dispatcher: "__lua", arg: "15", description: "Share Cloak toggle" }
+  ]
+  const p = Binds.plan(live)
+  assert.strictEqual(p.needed, false)
+  assert.strictEqual(p.already, 1)
+})
+
+test("binds: service scans, does not keyword-bind on startup", () => {
+  const src = fs.readFileSync(path.join(ROOT, "Service.qml"), "utf8")
+  assert.ok(src.indexOf("function scanBinds") >= 0)
+  assert.ok(src.indexOf("Qt.callLater(root.scanBinds)") >= 0)
+  assert.ok(src.indexOf("compat/install-binds.py") >= 0)
+  assert.ok(src.indexOf("Binds.bindArgv") < 0)
+  assert.ok(src.indexOf("function installBinds") >= 0)
+  assert.ok(src.indexOf("teardownBinds") >= 0)
+})
+
+test("binds: skip when preferred and alternate are taken", () => {
+  const live = [
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "a", description: "taken" },
+    { modmask: 72, key: "F9", dispatcher: "exec", arg: "b", description: "also taken" }
+  ]
+  const p = Binds.plan(live)
+  assert.strictEqual(p.needed, true)
+  assert.strictEqual(p.toAdd.filter((x) => x.desc === "Share Cloak toggle").length, 0)
+  assert.ok(p.skipped.some((s) => s.keys === "SUPER + F9"))
+  assert.ok(p.note.indexOf("skipped SUPER + F9") >= 0)
+})
+
 test("hypr: workspace names with separators fall back to id", () => {
   const tok = Hypr.workspaceToken("foo,bar", 4)
   assert.strictEqual(tok, "4")

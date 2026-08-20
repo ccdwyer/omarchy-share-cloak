@@ -4,6 +4,7 @@ import qs.Commons
 import qs.Ui
 import "js/Config.js" as Config
 import "js/State.js" as State
+import "js/Binds.js" as Binds
 
 BarWidget {
   id: root
@@ -19,6 +20,8 @@ BarWidget {
   property string barState: "idle"
   property string chipText: "cloak"
   property string phase: "idle"
+  property bool offerBinds: false
+  property string offerNote: ""
 
   readonly property var cloakService: {
     if (bar && bar.pluginRegistry && typeof bar.pluginRegistry.serviceFor === "function") {
@@ -45,6 +48,13 @@ BarWidget {
     root.barState = snap.barState
     root.phase = snap.phase
     root.chipText = State.chipLabel()
+    var offer = Binds.offer || {}
+    root.offerBinds = !!offer.needed
+    root.offerNote = String(offer.note || "Add Super+F9 / Super+F10 keybindings")
+  }
+
+  function installBinds() {
+    Quickshell.execDetached(["omarchy-shell", root.moduleName, "installBinds", ""])
   }
 
   function callToggle() {
@@ -75,8 +85,8 @@ BarWidget {
     return "Share Cloak — auto-cloak is off. Left: cloak. Right: mark windows." + extra
   }
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  implicitWidth: visible ? row.implicitWidth : 0
+  implicitHeight: row.implicitHeight
 
   onAutoCloakChanged: root.pushSettings()
   onWorkspaceGuardChanged: root.pushSettings()
@@ -90,29 +100,50 @@ BarWidget {
     onTriggered: root.refresh()
   }
 
-  WidgetButton {
-    id: button
-    anchors.fill: parent
-    bar: root.bar
-    text: root.chipText
-    tooltipText: root.tooltip()
-    onPressed: function(buttonCode) {
-      if (buttonCode === Qt.RightButton)
-        root.openMarks()
-      else
-        root.callToggle()
-    }
-  }
+  Row {
+    id: row
+    spacing: Style.space(4)
 
-  Rectangle {
-    visible: root.barState === "onair"
-    anchors.right: parent.right
-    anchors.top: parent.top
-    anchors.margins: 2
-    width: 7
-    height: 7
-    radius: 4
-    color: Color.accent
+    Item {
+      width: button.implicitWidth
+      height: button.implicitHeight
+
+      WidgetButton {
+        id: button
+        anchors.fill: parent
+        bar: root.bar
+        text: root.chipText
+        tooltipText: root.tooltip()
+        onPressed: function(buttonCode) {
+          if (buttonCode === Qt.RightButton)
+            root.openMarks()
+          else
+            root.callToggle()
+        }
+      }
+
+      Rectangle {
+        visible: root.barState === "onair"
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: 2
+        width: 7
+        height: 7
+        radius: 4
+        color: Color.accent
+      }
+    }
+
+    WidgetButton {
+      visible: root.offerBinds
+      bar: root.bar
+      text: "keys"
+      tooltipText: root.offerNote.length ? root.offerNote : "Add Super+F9 / Super+F10 keybindings (skips combos you already use)"
+      onPressed: function(buttonCode) {
+        if (buttonCode === Qt.LeftButton)
+          root.installBinds()
+      }
+    }
   }
 
   Component.onCompleted: {

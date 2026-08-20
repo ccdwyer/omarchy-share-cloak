@@ -69,6 +69,8 @@ Item {
   property var pendingMako: null
   property var pendingGetprops: []
   property var ownedBinds: []
+  property bool bindOfferNeeded: true
+  property string bindOfferNote: ""
   property string pendingCloakReason: ""
   property bool hydrating: true
   property int uiRevision: 0
@@ -965,58 +967,50 @@ Item {
     return JSON.stringify(snap)
   }
 
-  function installBinds() {
-    root.ownedBinds = []
+  function applyBindPlan(plan, bindsText) {
+    var p = plan || Binds.offer
+    root.bindOfferNeeded = !!p.needed
+    root.bindOfferNote = String(p.note || "")
+    Binds.setOffer(p)
+    var binds = bindsText !== undefined ? Binds.parseBinds(bindsText) : []
+    root.ownedBinds = Binds.ownedKeywordBinds(binds, root.pluginId)
+    State.setBindStatus(p.needed ? "offer" : "", p.note || "")
+    root.publish()
+  }
+
+  function scanBinds() {
     enqueueWork(["hyprctl", "-j", "binds"], function(text, code) {
-      if (Number(code) !== 0) {
-        State.setBindStatus("failed", "could not read keybinds — use the bar chip")
-        root.publish()
+      if (Number(code) !== 0)
         return
-      }
-      root.installOneBind("F9", "toggle", text, function() {
-        enqueueWork(["hyprctl", "-j", "binds"], function(t2, c2) {
-          root.installOneBind("F10", "markFocused", Number(c2) === 0 ? t2 : text, function() {
-            if (!(root.ownedBinds && root.ownedBinds.length))
-              State.setBindStatus(State.bindStatus || "failed", State.bindNote || "Super+F9/F10 not installed — use the bar chip")
-            root.publish()
-          })
-        })
-      })
+      root.applyBindPlan(Binds.applyScan(text), text)
     })
   }
 
-  function installOneBind(key, method, bindsText, done) {
-    var binds = Binds.parseBinds(bindsText)
-    if (Binds.conflict(binds, Binds.SUPER, key, root.pluginId, method)) {
-      State.setBindStatus("conflict", "Super+" + key + " is already bound — use the bar chip")
-      if (done)
-        done()
-      return
-    }
-    if (Binds.oursPresent(binds, Binds.SUPER, key, root.pluginId, method)) {
-      root.ownedBinds = (root.ownedBinds || []).concat([{ key: key, method: method }])
-      if (done)
-        done()
-      return
-    }
-    enqueueWork(Binds.bindArgv(key, method), function(text, code) {
+  function installBinds(arg) {
+    enqueueWork(["hyprctl", "-j", "binds"], function(text, code) {
       if (Number(code) !== 0) {
-        State.setBindStatus("failed", "could not bind Super+" + key + " — use the bar chip")
-        if (done)
-          done()
+        root.bindOfferNote = "could not read keybinds"
+        State.setBindStatus("failed", "could not read keybinds")
+        root.publish()
         return
       }
-      enqueueWork(["hyprctl", "-j", "binds"], function(t2, c2) {
-        var now = Number(c2) === 0 ? Binds.parseBinds(t2) : []
-        if (Binds.oursPresent(now, Binds.SUPER, key, root.pluginId, method)) {
-          root.ownedBinds = (root.ownedBinds || []).concat([{ key: key, method: method }])
-        } else {
-          State.setBindStatus("failed", "Super+" + key + " bind did not stick — use the bar chip")
+      var plan = Binds.applyScan(text)
+      if (!plan.toAdd || !plan.toAdd.length) {
+        root.applyBindPlan(plan, text)
+        return
+      }
+      var lua = Binds.luaBlock(plan.toAdd)
+      enqueueWork(["python3", root.pluginDir + "/compat/install-binds.py", root.pluginId, lua], function(out, instCode) {
+        if (Number(instCode) !== 0) {
+          root.bindOfferNote = "could not write ~/.config/hypr/bindings.lua"
+          State.setBindStatus("failed", "could not write ~/.config/hypr/bindings.lua")
+          root.publish()
+          return
         }
-        if (done)
-          done()
+        Qt.callLater(root.scanBinds)
       })
     })
+    return "ok"
   }
 
   function teardownBinds() {
@@ -1264,13 +1258,22 @@ Item {
     function ping(arg: string): string { return "ok" }
     function status(arg: string): string { return root.statusJson() }
     function summon(arg: string): string { return root.summonOverlay(arg && arg.length ? arg : root.overlayPayload()) }
+    function installBinds(arg: string): string { return root.installBinds(arg) }
+  }
+
+  Timer {
+    id: bindScanTimer
+    interval: 3000
+    repeat: true
+    running: true
+    onTriggered: root.scanBinds()
   }
 
   Component.onCompleted: {
     root.applyHostSettings()
     probeWhichProc.running = true
     versionProc.running = true
-    root.installBinds()
+    Qt.callLater(root.scanBinds)
     root.publish()
   }
 

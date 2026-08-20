@@ -8,6 +8,7 @@ import "js/Config.js" as Config
 import "js/State.js" as State
 import "js/Marks.js" as Marks
 import "js/Clients.js" as Clients
+import "js/Binds.js" as Binds
 
 Item {
   id: root
@@ -119,12 +120,15 @@ Item {
         return svc.toggleMark(a)
       if (method === "markFocused" && typeof svc.markFocused === "function")
         return svc.markFocused()
+      if (method === "installBinds" && typeof svc.installBinds === "function")
+        return svc.installBinds(a)
     }
     Quickshell.execDetached(["omarchy-shell", root.moduleName, method, a])
     return "queued"
   }
 
   function markFocused(arg) { return root.callService("markFocused", arg) }
+  function installBinds(arg) { return root.callService("installBinds", arg) }
 
   function refresh() {
     var snap = State.snapshot()
@@ -438,10 +442,43 @@ Item {
           font.pixelSize: Style.font.caption
         }
 
+        Text {
+          visible: !!(Binds.offer && Binds.offer.needed)
+          width: parent.width
+          wrapMode: Text.Wrap
+          text: root.markRows.length
+                ? ("No Share Cloak keys yet. Preferred: Super+F9 toggle · Super+F10 mark focused. Combos you already use are skipped.\n" + String((Binds.offer && Binds.offer.note) || ""))
+                : ("No marked windows yet.\n\nNo Share Cloak keys yet. Preferred: Super+F9 toggle · Super+F10 mark focused. Combos you already use are skipped.\n" + String((Binds.offer && Binds.offer.note) || ""))
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+        }
+
+        Rectangle {
+          visible: !!(Binds.offer && Binds.offer.needed)
+          width: cloakBindLabel.implicitWidth + Style.space(16)
+          height: cloakBindLabel.implicitHeight + Style.space(10)
+          radius: Math.max(4, root.cornerRadius / 2)
+          color: root.accent
+          Text {
+            id: cloakBindLabel
+            anchors.centerIn: parent
+            text: "Add keybindings"
+            color: root.background
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+          }
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.callService("installBinds", "")
+          }
+        }
+
         ListView {
           id: markList
           width: parent.width
-          height: parent.height - Style.space(96)
+          height: parent.height - Style.space(96) - (Binds.offer && Binds.offer.needed ? Style.space(88) : 0)
           clip: true
           model: root.markRows
           currentIndex: root.selectedIndex

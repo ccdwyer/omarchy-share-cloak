@@ -62,6 +62,6 @@ Conservative choices where the Omarchy / Quickshell / Hyprland API was not 100% 
 - Rehearse-mode screencopy preview.
 - dunst / non-mako notification managers.
 - A second Quickshell process.
-- Writing `hyprland.conf`. Super+F9/F10 are installed at service start with `hyprctl keyword bind` (runtime). Teardown is `Quickshell.execDetached` of `compat/unbind-owned.sh`, which re-reads `hyprctl -j binds` and unbinds only exact owned commands (plugin id + expected method + empty arg). The helper outlives `Component.onDestruction`. Python3 missing or hyprctl failure → no unbind.
+- Writing Hyprland config except an opt-in `Add keybindings` control that appends a marked `o.bind` block to `~/.config/hypr/bindings.lua` after checking `hyprctl -j binds`. Occupied combos are skipped or replaced with Super+Alt variants. Never `hl.unbind` of someone else's shortcut. Previously owned runtime Super+F9/F10 keyword binds (from an older auto-install) are still torn down on disable via `Quickshell.execDetached` of `compat/unbind-owned.sh`, which re-reads `hyprctl -j binds` and unbinds only exact owned exec commands (plugin id + expected method + empty arg). The helper outlives `Component.onDestruction`. Python3 missing or hyprctl failure → no unbind.
 - Network, accounts, telemetry.
 - Capturing a live compositor GIF on this Mac. Engine tests compare the full normalized client set after vanish/restore. `tests/live-roundtrip.sh` is for a Hyprland machine, not GitHub CI.

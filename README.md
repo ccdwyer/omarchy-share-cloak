@@ -47,7 +47,7 @@ omarchy-shell shell rescanPlugins
 | Bar chip, left click | Same as Super+F9 |
 | Bar chip, right click | Open the mark list |
 
-On plugin load the service reads `hyprctl -j binds`. Super+F9 / F10 are installed with `hyprctl keyword bind` only when that combo is free (or already the exact owned command). Teardown launches a detached helper (`compat/unbind-owned.sh`) that re-reads live binds after the service is gone and unbinds a combo only when **every** live binding is this plugin's **expected method** with an empty argument (`toggle ''` / `markFocused ''`). A same-combo `status ''` or a user bind is left alone. If a combo is taken or `hyprctl` fails, the bar chip is the fallback and the chip tooltip says so.
+If none of those keys are bound yet, the marks overlay and a **keys** chip on the bar offer **Add keybindings**. That writes `o.bind` lines to `~/.config/hypr/bindings.lua` (Hyprland reloads on save). Combos you already use are skipped; Super+F9 falls back to Super+Alt+F9, Super+F10 to Super+Alt+F10. The plugin never unbinds someone else's shortcut. Super+F9 is fine next to voxtype PTT (F9 without Super). Previously auto-installed `hyprctl keyword bind` Super+F9/F10 combos are still torn down on disable when they are exclusively this plugin's expected command.
 
 Cloak toggle/mark hit the plugin's `IpcHandler` (the service). `omarchy-shell shell call … toggle` would invoke the overlay UI, not cloak. The handler requires a third argument (empty string when unused):
 
@@ -56,7 +56,7 @@ omarchy-shell io.github.chris.share-cloak toggle ''
 omarchy-shell io.github.chris.share-cloak markFocused ''
 ```
 
-If a bind collides with one you already have, the bar chip still works; you can `hyprctl keyword unbind SUPER,F9`.
+If a bind collides with one you already have, the bar chip still works. Occupied preferred combos are skipped or replaced with Super+Alt variants.
 
 ### What cloak does
 
@@ -80,7 +80,7 @@ Bar chip states: **cloak** (idle) / **CLOAK** (armed, watching for a share) / **
 - **One-frame flash on unsafe workspace switches.** While cloaked, a workspace event whose target is not in the safe list (the workspace(s) visible at cloak time) covers the output immediately. Safe-list switches never flicker. A one-frame flash of the unsafe workspace is possible; the zero-frame pattern is: share one output, keep unsafe workspaces on the other.
 - **Notifications are mako-only.** No dunst path. Only a mako config section that actually suppresses notifications is used. If none is configured, or add+re-read fails, the chip says `notifications: unmanaged`. A suppression mode the user already had on is left alone.
 - **Helper binary is optional.** `bin/cloak-probe` is built by `build.sh`. If it is missing, QML falls back to `compat/cloak-probe.sh` and, for share corroboration, to an in-process `pw-dump` JSON parse. Auto-cloak's primary trigger is Hyprland's `screencast` socket2 event, not the helper.
-- **Runtime keybinds.** Super+F9 / F10 are installed only if free and tracked as owned (plugin id + expected method + empty arg). Teardown is a detached helper so it still runs after the service Item is destroyed. It re-reads live binds and unbinds a combo only when every live binding is that exact owned command. Mixed plugin+user or same-plugin/different-method combos are left untouched. **Clean teardown needs `python3`** (Omarchy ships it); if it is missing the helper refuses to unbind rather than guessing. Conflicts leave the bar chip as the control. No `hyprland.conf` edits.
+- **Opt-in keybinds.** Super+F9 / F10 are not installed on startup. **Add keybindings** appends a marked `o.bind` block to `~/.config/hypr/bindings.lua` after checking `hyprctl -j binds`. Occupied combos are skipped or replaced with Super+Alt variants. Never `hl.unbind` of someone else's shortcut. Previously owned `hyprctl keyword bind` Super+F9/F10 combos are still torn down on disable via a detached helper (`compat/unbind-owned.sh`) that re-reads live binds and unbinds only exact owned exec commands. Mixed plugin+user or same-plugin/different-method combos are left untouched. **Writing `bindings.lua` and keyword teardown need `python3`** (Omarchy ships it). The bar chip is always the control.
 - **ON AIR frame tracks the layer-shell output the overlay landed on** (typically the focused / primary screen). The `screencast` event does not name which monitor is shared.
 - **Crash mid-cloak** leaves windows on `special:cloak`. On the next shell start, Share Cloak offers one-key restore (Super+F9) rather than mutating the layout unattended.
 
