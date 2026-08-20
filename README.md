@@ -24,11 +24,7 @@ Then, on the Omarchy machine, build the optional helper (pw-dump parsing + `0600
 ~/.config/omarchy/plugins/io.github.chris.share-cloak/build.sh
 ```
 
-To ship a tarball without `src/cloak-probe/target/` or review-harness debris, pack git-tracked files only:
-
-```sh
-./scripts/pack-plugin.sh   # writes dist/share-cloak.git.tar.gz via git archive
-```
+Install is the git clone above. `./scripts/pack-plugin.sh` can write a *gitignored* `dist/share-cloak.git.tar.gz` from `HEAD` for a one-off copy; that tarball is not committed (a checked-in archive goes stale). GitHub Actions uploads a fresh pack as a CI artifact.
 
 Put the chip on the bar if `--enable` did not:
 
@@ -82,7 +78,7 @@ Bar chip states: **cloak** (idle) / **CLOAK** (armed, watching for a share) / **
 - **One-frame flash on unsafe workspace switches.** While cloaked, a workspace event whose target is not in the safe list (the workspace(s) visible at cloak time) covers the output immediately. Safe-list switches never flicker. A one-frame flash of the unsafe workspace is possible; the zero-frame pattern is: share one output, keep unsafe workspaces on the other.
 - **Notifications are mako-only.** No dunst path. Only a mako config section that actually suppresses notifications is used. If none is configured, or add+re-read fails, the chip says `notifications: unmanaged`. A suppression mode the user already had on is left alone.
 - **Helper binary is optional.** `bin/cloak-probe` is built by `build.sh`. If it is missing, QML falls back to `compat/cloak-probe.sh` and, for share corroboration, to an in-process `pw-dump` JSON parse. Auto-cloak's primary trigger is Hyprland's `screencast` socket2 event, not the helper.
-- **Runtime keybinds.** Super+F9 / F10 are installed only if free and tracked as owned (plugin id + expected method + empty arg). Teardown is a detached helper so it still runs after the service Item is destroyed. It re-reads live binds and unbinds a combo only when every live binding is that exact owned command. Mixed plugin+user or same-plugin/different-method combos are left untouched. Conflicts leave the bar chip as the control. No `hyprland.conf` edits.
+- **Runtime keybinds.** Super+F9 / F10 are installed only if free and tracked as owned (plugin id + expected method + empty arg). Teardown is a detached helper so it still runs after the service Item is destroyed. It re-reads live binds and unbinds a combo only when every live binding is that exact owned command. Mixed plugin+user or same-plugin/different-method combos are left untouched. **Clean teardown needs `python3`** (Omarchy ships it); if it is missing the helper refuses to unbind rather than guessing. Conflicts leave the bar chip as the control. No `hyprland.conf` edits.
 - **ON AIR frame tracks the layer-shell output the overlay landed on** (typically the focused / primary screen). The `screencast` event does not name which monitor is shared.
 - **Crash mid-cloak** leaves windows on `special:cloak`. On the next shell start, Share Cloak offers one-key restore (Super+F9) rather than mutating the layout unattended.
 
@@ -102,11 +98,12 @@ Marks (class + title regex) persist in `~/.local/state/share-cloak/marks.json`. 
 ## Tests (off-device)
 
 ```sh
-./scripts/pack-plugin.sh
 node tests/run.js
 sh tests/probe-fallback.test.sh
 sh scripts/omarchy-plugin-validate.sh
 sh tests/live-roundtrip.sh          # Omarchy only: full-set hyprctl round-trip (not run in GitHub CI)
+# optional:
+./scripts/pack-plugin.sh            # gitignored dist/ tarball from HEAD; not the install path
 # optional, needs cargo:
 cargo test --manifest-path src/cloak-probe/Cargo.toml
 ```

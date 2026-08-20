@@ -935,5 +935,40 @@ test("compat probe: init-state + secure", () => {
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
+test("pack: dist tarball is not git-tracked", () => {
+  const res = spawnSync("git", ["ls-files", "--", "dist/"], {
+    encoding: "utf8",
+    cwd: ROOT
+  })
+  assert.strictEqual(res.status, 0, res.stderr)
+  assert.strictEqual(String(res.stdout || "").trim(), "", "do not commit dist/; Omarchy installs via git clone")
+})
+
+test("pack: on-disk archive must match HEAD if present", () => {
+  const archive = path.join(ROOT, "dist", "share-cloak.git.tar.gz")
+  if (!fs.existsSync(archive))
+    return
+  const tar = spawnSync("tar", ["tzf", archive], { encoding: "utf8" })
+  assert.strictEqual(tar.status, 0, tar.stderr)
+  const archived = tar.stdout
+    .split("\n")
+    .map((line) => line.replace(/^share-cloak\//, ""))
+    .filter((line) => line && !line.endsWith("/"))
+  const required = [
+    "compat/unbind-owned.sh",
+    "tests/fixtures/binds-mixed-method.json",
+    "Service.qml"
+  ]
+  required.forEach((name) => {
+    assert.ok(archived.indexOf(name) >= 0, "stale archive missing " + name)
+  })
+  const head = spawnSync("git", ["ls-files"], { encoding: "utf8", cwd: ROOT })
+  assert.strictEqual(head.status, 0, head.stderr)
+  const tracked = head.stdout.trim().split("\n").filter(Boolean)
+  tracked.forEach((name) => {
+    assert.ok(archived.indexOf(name) >= 0, "stale archive missing HEAD file " + name)
+  })
+})
+
 process.stdout.write("\n" + passed + " passed, " + failed + " failed\n")
 process.exit(failed ? 1 : 0)

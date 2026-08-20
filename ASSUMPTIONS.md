@@ -48,7 +48,7 @@ Conservative choices where the Omarchy / Quickshell / Hyprland API was not 100% 
 
 - Tribunal deleted the Go PipeWire daemon. Detection is compositor IPC + `pw-dump`.
 - The competition brief still asked for a helper binary: Rust `cloak-probe` + POSIX `compat/cloak-probe.sh`. QML never requires it. This Mac has no Linux cross-toolchain, so no Linux binary is committed. `.github/workflows/ci.yml` builds and uploads `cloak-probe` on Ubuntu; Omarchy users run `./build.sh`.
-- Submission archives must be `git archive` / `scripts/pack-plugin.sh` so `src/cloak-probe/target/` and review-harness debris in the working tree are not packed. Those files are left on disk (do not delete review logs).
+- The install path is `omarchy plugin add <git-url>` (a git clone of HEAD). A prebuilt `dist/*.tar.gz` is **not** committed — it goes stale. `scripts/pack-plugin.sh` writes a gitignored archive from current HEAD and fails if the file list diverges or if the tarball is git-tracked. Review-harness debris stays on disk (do not delete review logs).
 
 ## Demo GIF
 
