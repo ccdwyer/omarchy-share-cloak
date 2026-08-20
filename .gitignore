@@ -1,11 +1,14 @@
 bin/cloak-probe
 src/cloak-probe/target/
+dist/
 .DS_Store
 *.swp
 .grok_impl.log
 .impl_prompt.md
 .grok_fix_r1.log
 .fix_prompt_r1.md
+.fix_prompt_r2.md
 .gpt_review_*
 .review_prompt.md
+.review_prompt2.md
 .serena/

@@ -267,16 +267,15 @@ test("hypr: restore floating geometry after move", () => {
   assert.ok(batch.indexOf("resizewindowpixel exact 300 200,address:0xabc") >= 0)
 })
 
-test("mako: current dnd is already-active, no add, no ownership", () => {
+test("mako: guessed names without config are unmanaged", () => {
   const info = Mako.inspect(fixture("mako-modes-default.txt"), 0, "")
-  assert.strictEqual(info.ok, true)
-  assert.strictEqual(info.alreadyActive, true)
+  assert.strictEqual(info.alreadyActive, false)
   assert.strictEqual(info.needsAdd, false)
-  assert.strictEqual(info.applyMode, "")
-  assert.strictEqual(info.tryModes.length, 0)
+  assert.strictEqual(info.manager, "unmanaged")
+  assert.strictEqual(info.ok, false)
 })
 
-test("mako: configured dnd not current is a candidate to add", () => {
+test("mako: configured suppression mode not current is a candidate to add", () => {
   const info = Mako.inspect(fixture("mako-modes-none.txt"), 0, fixture("mako-config-dnd.txt"))
   assert.strictEqual(info.ok, true)
   assert.strictEqual(info.alreadyActive, false)
@@ -287,10 +286,25 @@ test("mako: configured dnd not current is a candidate to add", () => {
   assert.strictEqual(JSON.stringify(Mako.restoreArgv("dnd")), JSON.stringify(["makoctl", "mode", "-r", "dnd"]))
 })
 
-test("mako: no current dnd still tries known candidates", () => {
+test("mako: configured suppression already current is managed without add", () => {
+  const info = Mako.inspect(fixture("mako-modes-default.txt"), 0, fixture("mako-config-dnd.txt"))
+  assert.strictEqual(info.alreadyActive, true)
+  assert.strictEqual(info.needsAdd, false)
+  assert.strictEqual(info.ok, true)
+  assert.strictEqual(info.manager, "mako")
+})
+
+test("mako: configured mode without invisible is not suppression", () => {
+  const info = Mako.inspect(fixture("mako-modes-none.txt"), 0, fixture("mako-config-nosuppress.txt"))
+  assert.strictEqual(info.ok, false)
+  assert.strictEqual(info.needsAdd, false)
+  assert.strictEqual(info.manager, "unmanaged")
+})
+
+test("mako: no config does not guess candidates", () => {
   const info = Mako.inspect(fixture("mako-modes-none.txt"), 0, "")
-  assert.strictEqual(info.needsAdd, true)
-  assert.ok(info.tryModes.length > 0)
+  assert.strictEqual(info.needsAdd, false)
+  assert.strictEqual(info.tryModes.length, 0)
 })
 
 test("mako: missing binary is unmanaged", () => {
@@ -368,7 +382,12 @@ test("session: cloak records owned moves and restore reverses them", () => {
     clients
   })
   Session.recordMoves(session, marked)
-  Session.recordDims(session, Marks.unmarkedClients(clients, jsonFix("marks.json").marks), 0.85, false)
+  const unmarked = Marks.unmarkedClients(clients, jsonFix("marks.json").marks).map((c) => {
+    const copy = JSON.parse(JSON.stringify(c))
+    copy.alpha = 1
+    return copy
+  })
+  Session.recordDims(session, unmarked, 0.85, false)
   assert.ok(session.mutations.length >= 3)
   const live = Clients.captureAll(jsonFix("clients-cloaked.json"))
   const plan = Session.restorePlan(session, live)
@@ -426,6 +445,31 @@ test("settings: empty apply does not overwrite widget false", () => {
   assert.strictEqual(snap.dimOthers, false)
   assert.strictEqual(snap.coverCards, false)
   assert.strictEqual(snap.workspaceGuard, false)
+})
+
+test("session: dim is skipped when getprop was not captured", () => {
+  const unmarked = [{ address: "0xabc", class: "firefox", title: "x", workspaceName: "1" }]
+  const session = Session.create({ clients: unmarked })
+  Session.recordDims(session, unmarked, 0.85, false)
+  assert.strictEqual(session.mutations.filter((m) => m.kind === "alpha").length, 0)
+})
+
+test("session: stillOnCloak detects stranded restore", () => {
+  const session = Session.load(fixture("session-v1.json")).session
+  const stuck = Session.stillOnCloak(session, jsonFix("clients-cloaked.json"))
+  assert.ok(stuck.length >= 2)
+  const restored = Session.stillOnCloak(session, jsonFix("clients-messy.json"))
+  assert.strictEqual(restored.length, 0)
+})
+
+test("clients: parseClientsResult requires valid json array and exit 0", () => {
+  const bad = Clients.parseClientsResult("nope", 0)
+  assert.strictEqual(bad.ok, false)
+  const fail = Clients.parseClientsResult(fixture("clients-messy.json"), 1)
+  assert.strictEqual(fail.ok, false)
+  const ok = Clients.parseClientsResult(fixture("clients-messy.json"), 0)
+  assert.strictEqual(ok.ok, true)
+  assert.ok(ok.clients.length >= 3)
 })
 
 test("session: dim snapshots prior alpha and drops ownership when live differs", () => {

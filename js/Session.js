@@ -163,20 +163,26 @@ function recordDims(session, unmarked, alpha, withDimaround) {
         var c = captureClient(src)
         if (!c || !c.address)
             continue
-        addMutation(session, {
-            kind: "alpha",
-            owned: true,
-            address: c.address,
-            from: priorAlpha(src),
-            to: to
-        })
-        if (withDimaround) {
+        var capturedAlpha = src && src.alpha !== undefined && src.alpha !== null && !isNaN(Number(src.alpha))
+        var capturedDim = src && src.dimaround !== undefined && src.dimaround !== null && !isNaN(Number(src.dimaround))
+        if (capturedAlpha) {
+            addMutation(session, {
+                kind: "alpha",
+                owned: true,
+                address: c.address,
+                from: Number(src.alpha),
+                to: to,
+                captured: true
+            })
+        }
+        if (withDimaround && capturedDim) {
             addMutation(session, {
                 kind: "dimaround",
                 owned: true,
                 address: c.address,
-                from: priorDimaround(src),
-                to: 1
+                from: Number(src.dimaround),
+                to: 1,
+                captured: true
             })
         }
     }
@@ -348,6 +354,42 @@ function restorePlan(session, liveClients) {
         steps.push(m)
     }
     return { steps: steps, unrestorable: unrestorable }
+}
+
+function stillOnCloak(session, liveClients) {
+    var map = {}
+    var list = liveClients || []
+    for (var i = 0; i < list.length; i++) {
+        var addr = String((list[i] && list[i].address) || "").toLowerCase()
+        if (!addr)
+            continue
+        if (addr.indexOf("0x") !== 0)
+            addr = "0x" + addr
+        map[addr] = list[i]
+    }
+    var stuck = []
+    var muts = (session && session.mutations) || []
+    for (var j = 0; j < muts.length; j++) {
+        var m = muts[j]
+        if (!m || !m.owned)
+            continue
+        if (m.kind !== "move" && m.kind !== "catch-all-move")
+            continue
+        var key = String(m.address || "").toLowerCase()
+        var live = map[key]
+        if (!live)
+            continue
+        var name = ""
+        if (live.workspaceName)
+            name = String(live.workspaceName)
+        else if (live.workspace && typeof live.workspace === "object")
+            name = String(live.workspace.name || "")
+        else
+            name = String(live.workspace || "")
+        if (name === "special:cloak" || name === "cloak")
+            stuck.push(live)
+    }
+    return stuck
 }
 
 function coverCards(session, currentSafeName) {

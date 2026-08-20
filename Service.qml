@@ -63,6 +63,7 @@ Item {
   property var workCurrent: null
   property var pendingBatches: []
   property var pendingMarked: []
+  property var pendingUnmarked: []
   property var pendingMako: null
   property var pendingGetprops: []
   property string pendingCloakReason: ""
@@ -228,12 +229,19 @@ Item {
     var fake = { class: fields["class"] || "", title: fields.title || "", address: fields.address }
     if (!Marks.isMarked(fake, Config.marks) && !Marks.classIsMarked(fake["class"], Config.marks))
       return
-    Session.recordCatchAll(root.session, fields)
-    dispatchHypr("movetoworkspacesilent special:cloak,address:" + Events.normalizeAddress(fields.address))
-    persistTimer.restart()
-    if (Config.coverCards)
-      State.setCovers(Session.coverCards(root.session, State.currentWorkspace))
-    root.publish()
+    var addr = Events.normalizeAddress(fields.address)
+    root.cloakAddressChecked(addr, function(ok) {
+      if (!ok) {
+        State.setToast("catch-all failed — a marked window is still visible")
+        root.publish()
+        return
+      }
+      Session.recordCatchAll(root.session, fields)
+      persistSession()
+      if (Config.coverCards)
+        State.setCovers(Session.coverCards(root.session, State.currentWorkspace))
+      root.publish()
+    })
   }
 
   function onWorkspace(fields) {
@@ -363,10 +371,9 @@ Item {
         unmarked.push(clients[i])
     }
     Session.recordMoves(session, marked)
-    if (Config.dimOthers)
-      Session.recordDims(session, unmarked, Config.dimAlpha, Config.dimaround)
     root.session = session
     root.pendingMarked = marked.slice()
+    root.pendingUnmarked = unmarked.slice()
 
     State.setNotification(mako.alreadyActive ? "mako" : (mako.ok ? "mako" : "unmanaged"), mako.alreadyActive ? "" : (mako.ok ? "" : mako.note))
     if (Config.coverCards)
@@ -377,19 +384,10 @@ Item {
     persistSession()
     root.summonOverlay(root.overlayPayload())
 
-    var cmds = Hypr.cloakCommands(marked, unmarked, {
-      dimOthers: Config.dimOthers,
-      dimAlpha: Config.dimAlpha,
-      dimaround: Config.dimaround
-    })
-    var batches = Hypr.chunk(cmds, 20)
-    root.pendingBatches = batches.slice()
-    root.flushBatches(function(ok) {
-      if (!ok && marked.length) {
-        root.verifyAndFinishCloak(false)
-        return
-      }
-      root.verifyAndFinishCloak(true)
+    var moveCmds = Hypr.moveCommands(marked)
+    root.pendingBatches = Hypr.chunk(moveCmds, 20)
+    root.flushBatches(function(moveOk) {
+      root.verifyAndFinishCloak(moveOk)
     })
   }
 
@@ -431,44 +429,113 @@ Item {
     })
   }
 
-  function verifyAndFinishCloak(batchOk) {
+  function verifyAndFinishCloak(moveOk) {
     enqueueWork(["hyprctl", "-j", "clients"], function(text, code) {
-      var live = Clients.captureAll(Clients.parseClients(text))
+      var parsed = Clients.parseClientsResult(text, code)
+      if (!parsed.ok) {
+        root.rollbackCloak([], "hyprctl verify failed")
+        return
+      }
+      var live = parsed.clients
       root.lastClients = live
       State.setClients(live)
       var leaked = Clients.markedStillVisible(root.pendingMarked, live)
-      if (Number(code) !== 0 || leaked.length) {
-        root.rollbackCloak(live, leaked.length ? "marked windows still visible" : "hyprctl verify failed")
+      if (!moveOk || leaked.length) {
+        root.rollbackCloak(live, leaked.length ? "marked windows still visible" : "cloak move batch failed")
         return
       }
       if (root.session)
         root.session.phase = "cloaked"
       State.enterCloaked(root.pendingCloakReason)
-      State.transactionBusy = false
       persistSession()
       root.publish()
-      root.applyMako(root.pendingMako)
+      root.snapshotAndDim(function() {
+        State.transactionBusy = false
+        root.applyMako(root.pendingMako)
+        root.publish()
+      })
     })
+  }
+
+  function snapshotAndDim(done) {
+    if (!Config.dimOthers || !(root.pendingUnmarked && root.pendingUnmarked.length)) {
+      if (done)
+        done()
+      return
+    }
+    var list = root.pendingUnmarked.slice()
+    var jobs = []
+    for (var i = 0; i < list.length; i++) {
+      jobs.push({ address: list[i].address, kind: "alpha" })
+      if (Config.dimaround)
+        jobs.push({ address: list[i].address, kind: "dimaround" })
+    }
+    root.pendingGetprops = jobs
+    root.fillGetprops(list, function(enriched) {
+      Session.recordDims(root.session, enriched, Config.dimAlpha, Config.dimaround)
+      persistSession()
+      var dimmable = []
+      for (var j = 0; j < enriched.length; j++) {
+        if (enriched[j].alpha !== undefined)
+          dimmable.push(enriched[j])
+      }
+      var cmds = Hypr.dimCommands(dimmable, {
+        dimAlpha: Config.dimAlpha,
+        dimaround: Config.dimaround
+      })
+      root.pendingBatches = Hypr.chunk(cmds, 20)
+      root.flushBatches(function(dimOk) {
+        if (!dimOk)
+          console.warn("share-cloak: optional dim batch failed; vanish still holds")
+        if (done)
+          done()
+      })
+    })
+  }
+
+  function keepSessionAndOfferRestore(note) {
+    if (root.session) {
+      root.session.phase = "cloaked"
+      persistSession()
+    }
+    State.enterCloaked(root.pendingCloakReason || "manual")
+    State.offerRestore(note || "Cloak interrupted — Super+F9 restores your windows")
+    State.transactionBusy = false
+    root.summonOverlay(JSON.stringify({ mode: "restore", pendingRestore: true }))
+    root.publish()
   }
 
   function rollbackCloak(live, reason) {
     var plan = Session.restorePlan(root.session || Session.empty(), live || [])
     var cmds = Hypr.restoreCommands(plan)
     root.pendingBatches = Hypr.chunk(cmds, 20)
-    root.flushBatches(function() {
-      State.setError(reason || "cloak failed")
-      State.setToast("cloak failed — protection not active")
-      State.enterResting(Config.autoCloak, true)
-      State.overlayMode = "toast"
-      root.summonOverlay(JSON.stringify({ mode: "toast" }))
-      toastTimer.restart()
-      clearSessionFile()
-      State.transactionBusy = false
-      root.publish()
+    root.flushBatches(function(ok) {
+      enqueueWork(["hyprctl", "-j", "clients"], function(text, code) {
+        var parsed = Clients.parseClientsResult(text, code)
+        var after = parsed.ok ? parsed.clients : (live || [])
+        var stuck = parsed.ok ? Session.stillOnCloak(root.session, after) : ["unverified"]
+        if (!ok || !parsed.ok || stuck.length) {
+          root.keepSessionAndOfferRestore(reason || "cloak failed — Super+F9 restores your windows")
+          return
+        }
+        State.setError(reason || "cloak failed")
+        State.setToast("cloak failed — protection not active")
+        State.enterResting(Config.autoCloak, true)
+        State.overlayMode = "toast"
+        root.summonOverlay(JSON.stringify({ mode: "toast" }))
+        toastTimer.restart()
+        clearSessionFile()
+        State.transactionBusy = false
+        root.publish()
+      })
     })
   }
 
   function abortCloak(reason) {
+    if (root.session && root.session.mutations && root.session.mutations.length) {
+      root.keepSessionAndOfferRestore(reason || "cloak failed — Super+F9 restores your windows")
+      return
+    }
     State.setError(reason || "cloak failed")
     State.setToast("cloak failed — protection not active")
     State.enterResting(Config.autoCloak, true)
@@ -483,6 +550,7 @@ Item {
   function applyMako(mako) {
     if (!mako) {
       State.setNotification("unmanaged", "notifications: unmanaged")
+      persistSession()
       return
     }
     if (mako.alreadyActive) {
@@ -510,14 +578,20 @@ Item {
     }
     var mode = modes.shift()
     enqueueWork(Mako.applyArgv(mode), function(text, code) {
-      if (Number(code) === 0) {
-        Session.recordMakoAdded(root.session, mode)
-        State.setNotification("mako", "")
-        persistSession()
-        root.publish()
+      if (Number(code) !== 0) {
+        root.tryMakoModes(modes)
         return
       }
-      root.tryMakoModes(modes)
+      enqueueWork(["makoctl", "mode"], function(nowText, nowCode) {
+        if (Number(nowCode) === 0 && Mako.isVerifiedCurrent(nowText, mode)) {
+          Session.recordMakoAdded(root.session, mode)
+          State.setNotification("mako", "")
+          persistSession()
+          root.publish()
+          return
+        }
+        root.tryMakoModes(modes)
+      })
     })
   }
 
@@ -526,19 +600,28 @@ Item {
       return "busy"
     if (!root.session && !State.pendingRestore)
       return "empty"
+    if (!root.session) {
+      State.setToast("no cloak session to restore")
+      root.publish()
+      return "empty"
+    }
     if (reason === "manual")
       State.userOverride = true
     State.transactionBusy = true
     State.enterUncloaking()
     root.publish()
-    enqueueWork(["hyprctl", "-j", "clients"], function(clientsText) {
-      root.gatherDimProps(reason, clientsText)
+    enqueueWork(["hyprctl", "-j", "clients"], function(clientsText, clientsCode) {
+      var parsed = Clients.parseClientsResult(clientsText, clientsCode)
+      if (!parsed.ok) {
+        root.keepSessionAndOfferRestore("restore failed — could not read windows")
+        return
+      }
+      root.gatherDimProps(reason, parsed.clients)
     })
     return "ok"
   }
 
-  function gatherDimProps(reason, clientsText) {
-    var live = Clients.captureAll(Clients.parseClients(clientsText))
+  function gatherDimProps(reason, live) {
     var need = []
     var muts = (root.session && root.session.mutations) || []
     var seen = {}
@@ -594,10 +677,30 @@ Item {
         makoStep = steps[i]
     }
     root.pendingBatches = batches.slice()
-    root.flushBatches(function() {
-      if (makoStep && makoStep.to)
-        enqueueWork(Mako.restoreArgv(makoStep.to), null)
-      root.finishUncloak()
+    root.flushBatches(function(ok) {
+      if (!ok) {
+        root.keepSessionAndOfferRestore("restore failed — Super+F9 to retry")
+        return
+      }
+      enqueueWork(["hyprctl", "-j", "clients"], function(text, code) {
+        var parsed = Clients.parseClientsResult(text, code)
+        if (!parsed.ok) {
+          root.keepSessionAndOfferRestore("restore failed — could not verify windows")
+          return
+        }
+        var stuck = Session.stillOnCloak(root.session, parsed.clients)
+        if (stuck.length) {
+          root.keepSessionAndOfferRestore("restore incomplete — Super+F9 to retry")
+          return
+        }
+        if (makoStep && makoStep.to) {
+          enqueueWork(Mako.restoreArgv(makoStep.to), function() {
+            root.finishUncloak()
+          })
+          return
+        }
+        root.finishUncloak()
+      })
     })
   }
 
@@ -638,6 +741,37 @@ Item {
     return root.beginCloak("manual")
   }
 
+  function cloakAddressChecked(addr, done) {
+    if (!addr) {
+      if (done)
+        done(false)
+      return
+    }
+    enqueueWork(Hypr.dispatchMoveArgv(addr), function(text, code) {
+      if (Number(code) !== 0) {
+        enqueueWork(Hypr.batchArgv(Hypr.moveToCloak(addr)), function(t2, c2) {
+          root.verifyAddressOnCloak(addr, done)
+        })
+        return
+      }
+      root.verifyAddressOnCloak(addr, done)
+    })
+  }
+
+  function verifyAddressOnCloak(addr, done) {
+    enqueueWork(["hyprctl", "-j", "clients"], function(text, code) {
+      var parsed = Clients.parseClientsResult(text, code)
+      if (!parsed.ok) {
+        if (done)
+          done(false)
+        return
+      }
+      var leaked = Clients.markedStillVisible([{ address: addr }], parsed.clients)
+      if (done)
+        done(leaked.length === 0)
+    })
+  }
+
   function markFocused() {
     enqueueWork(["hyprctl", "-j", "activewindow"], function(text) {
       var client = null
@@ -656,14 +790,14 @@ Item {
       Config.setMarks(Marks.addClass(Config.marks, klass, ".*"))
       persistMarks()
       if (State.isCloaked()) {
-        var cap = Clients.capture(client)
-        if (cap && cap.address && !Clients.isOnCloak(cap)) {
-          Session.recordMoves(root.session, [cap])
-          dispatchHypr("movetoworkspacesilent special:cloak,address:" + cap.address)
-          persistSession()
-        }
-        enqueueWork(["hyprctl", "-j", "clients"], function(clientsText) {
-          root.cloakNewlyMarked(klass, clientsText)
+        enqueueWork(["hyprctl", "-j", "clients"], function(clientsText, clientsCode) {
+          var parsed = Clients.parseClientsResult(clientsText, clientsCode)
+          if (!parsed.ok) {
+            State.setToast("could not hide newly marked windows")
+            root.publish()
+            return
+          }
+          root.cloakNewlyMarked(klass, parsed.clients)
         })
       }
       root.publish()
@@ -671,20 +805,36 @@ Item {
     return "ok"
   }
 
-  function cloakNewlyMarked(klass, clientsText) {
-    var clients = Clients.captureAll(Clients.parseClients(clientsText))
-    root.lastClients = clients
-    for (var i = 0; i < clients.length; i++) {
-      var c = clients[i]
+  function cloakNewlyMarked(klass, clients) {
+    var list = clients || []
+    root.lastClients = list
+    var pending = []
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i]
       if (!c || Clients.isOnCloak(c))
         continue
       if (String(c["class"] || "").toLowerCase() !== String(klass).toLowerCase())
         continue
-      if (!Session.findOwnedMove(root.session, c.address))
-        Session.recordMoves(root.session, [c])
-      dispatchHypr("movetoworkspacesilent special:cloak,address:" + c.address)
+      pending.push(c)
     }
-    persistSession()
+    root.cloakNewlyMarkedNext(pending)
+  }
+
+  function cloakNewlyMarkedNext(pending) {
+    if (!pending.length)
+      return
+    var c = pending.shift()
+    root.cloakAddressChecked(c.address, function(ok) {
+      if (ok) {
+        if (!Session.findOwnedMove(root.session, c.address))
+          Session.recordMoves(root.session, [c])
+        persistSession()
+      } else {
+        State.setToast("failed to hide " + (c["class"] || "window"))
+      }
+      root.publish()
+      root.cloakNewlyMarkedNext(pending)
+    })
   }
 
   function toggleMark(className) {

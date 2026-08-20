@@ -18,10 +18,16 @@ The GIF is a constructed six-beat storyboard of the real sequence (messy desktop
 omarchy plugin add <git-url> --enable
 ```
 
-Then, on the machine, you can build the optional helper (pw-dump parsing + `0600` session files). The plugin works without it:
+Then, on the Omarchy machine, build the optional helper (pw-dump parsing + `0600` session files). There is no committed Linux binary from this Mac — `./build.sh` compiles it on the target, and GitHub Actions (`.github/workflows/ci.yml`) publishes a Linux `cloak-probe` artifact. The plugin QML works without the binary.
 
 ```sh
 ~/.config/omarchy/plugins/io.github.chris.share-cloak/build.sh
+```
+
+To ship a tarball without `src/cloak-probe/target/` or review-harness debris, pack git-tracked files only:
+
+```sh
+./scripts/pack-plugin.sh   # writes dist/share-cloak.git.tar.gz via git archive
 ```
 
 Put the chip on the bar if `--enable` did not:
@@ -63,10 +69,10 @@ If a bind collides, use the bar chip.
 3. Catch new windows spawned by marked apps (dialogs, splashes) and send them to `special:cloak` too.
 4. Optionally dim unmarked windows via per-address `setprop alpha` (no `windowrulev2` accumulation).
 5. Cover the wallpaper with an owned below-windows layer plate (theme background + a slight gradient). Restore = destroy the surface.
-6. Pause notifications with mako. `makoctl mode` is the *current* mode list; DND is added with `makoctl mode -a dnd` (or `do-not-disturb`) only when it is not already current. Ownership is recorded only after a successful add, and uncloak removes only a mode this plugin added. If every add fails, cloak still runs and the chip says `notifications: unmanaged`.
+6. Pause notifications with mako only when a **configured suppression mode** exists (`[mode=…]` with `invisible=1` or `inhibit=1`). Guessed names are never added. After `-a`, Cloak re-reads `makoctl mode` before claiming notifications are managed. Uncloak removes only a mode this plugin added.
 7. Draw a 3 px ON AIR frame and a `CLOAKED · Super+F9 to uncloak` chip on the overlay layer.
 
-Uncloak replays owned mutations in reverse, verifies each window address still exists, and lists anything unrestorable in a toast. User changes made while cloaked (you moved a window off `special:cloak`) are preserved.
+Uncloak replays owned mutations in reverse, verifies each window address still exists **and is no longer on `special:cloak`**, and lists anything unrestorable in a toast. If `hyprctl` or a restore batch fails, `session.json` is kept and Super+F9 retries. User changes made while cloaked (you moved a window off `special:cloak`) are preserved.
 
 Bar chip states: **cloak** (idle) / **CLOAK** (armed, watching for a share) / **ON AIR**.
 
@@ -75,7 +81,7 @@ Bar chip states: **cloak** (idle) / **CLOAK** (armed, watching for a share) / **
 - **Vanish, not blur.** Hyprland has no per-client capture-blur primitive. Marked windows are moved to `special:cloak`. Cover cards on a full-output share are cosmetic presence indicators drawn over already-hidden windows — they cannot leak content if tracking is late.
 - **Window-share bypass.** If you share a *single window*, Cloak cannot hide that window's own pixels, and layer surfaces (plate, ON AIR frame, cover cards) are not visible to viewers. The `screencast` event's owner field detects this: Cloak warns `WINDOW SHARE — Cloak protects full-screen shares` and still runs DND + the workspace guard + vanish of *other* marked windows. Demo with a full-output share.
 - **One-frame flash on unsafe workspace switches.** While cloaked, a workspace event whose target is not in the safe list (the workspace(s) visible at cloak time) covers the output immediately. Safe-list switches never flicker. A one-frame flash of the unsafe workspace is possible; the zero-frame pattern is: share one output, keep unsafe workspaces on the other.
-- **Notifications are mako-only.** No dunst path. If `makoctl` is missing or every `mode -a` candidate fails, the step is a visible no-op (`notifications: unmanaged`). A DND mode the user already had on is left alone.
+- **Notifications are mako-only.** No dunst path. Only a mako config section that actually suppresses notifications is used. If none is configured, or add+re-read fails, the chip says `notifications: unmanaged`. A suppression mode the user already had on is left alone.
 - **Helper binary is optional.** `bin/cloak-probe` is built by `build.sh`. If it is missing, QML falls back to `compat/cloak-probe.sh` and, for share corroboration, to an in-process `pw-dump` JSON parse. Auto-cloak's primary trigger is Hyprland's `screencast` socket2 event, not the helper.
 - **Keybinds are yours to add.** The plugin never writes `hyprland.conf`.
 - **ON AIR frame tracks the layer-shell output the overlay landed on** (typically the focused / primary screen). The `screencast` event does not name which monitor is shared.
@@ -97,6 +103,7 @@ Marks (class + title regex) persist in `~/.local/state/share-cloak/marks.json`. 
 ## Tests (off-device)
 
 ```sh
+./scripts/pack-plugin.sh
 node tests/run.js
 sh tests/probe-fallback.test.sh
 # optional, needs cargo:

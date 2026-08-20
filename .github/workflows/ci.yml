@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: JS engine tests
+        run: node tests/run.js
+      - name: POSIX probe fallback
+        run: sh tests/probe-fallback.test.sh
+
+  linux-helper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test cloak-probe
+        run: cargo test --manifest-path src/cloak-probe/Cargo.toml
+      - name: Release build
+        run: cargo build --release --manifest-path src/cloak-probe/Cargo.toml
+      - name: Stage binary
+        run: |
+          mkdir -p bin
+          cp src/cloak-probe/target/release/cloak-probe bin/cloak-probe
+          chmod +x bin/cloak-probe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloak-probe-linux
+          path: bin/cloak-probe
+
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: git archive (no target/, no review debris)
+        run: sh scripts/pack-plugin.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: share-cloak-src
+          path: dist/share-cloak.git.tar.gz

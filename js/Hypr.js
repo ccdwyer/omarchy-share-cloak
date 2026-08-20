@@ -76,32 +76,45 @@ function chunk(commands, size) {
     return out.filter(function(s) { return s && s.length })
 }
 
-function cloakCommands(marked, unmarked, options) {
-    var opts = options || {}
-    var alpha = opts.dimAlpha === undefined ? DEFAULT_DIM_ALPHA : Number(opts.dimAlpha)
-    var dimOthers = opts.dimOthers !== false
+function moveCommands(marked) {
     var cmds = []
-    var i
-    for (i = 0; i < (marked || []).length; i++) {
+    for (var i = 0; i < (marked || []).length; i++) {
         var m = marked[i]
         var addr = m.address || m
         if (addr)
             cmds.push(moveToCloak(addr))
     }
-    if (dimOthers) {
-        for (i = 0; i < (unmarked || []).length; i++) {
-            var u = unmarked[i]
-            var uaddr = u.address || u
-            if (!uaddr)
-                continue
-            if (u.workspaceName === CLOAK_WORKSPACE || u.workspaceName === "cloak")
-                continue
-            cmds.push(alphaCmd(uaddr, alpha))
-            if (opts.dimaround)
-                cmds.push(dimaroundCmd(uaddr, true))
-        }
+    return cmds
+}
+
+function dimCommands(unmarked, options) {
+    var opts = options || {}
+    var alpha = opts.dimAlpha === undefined ? DEFAULT_DIM_ALPHA : Number(opts.dimAlpha)
+    var cmds = []
+    for (var i = 0; i < (unmarked || []).length; i++) {
+        var u = unmarked[i]
+        var uaddr = u.address || u
+        if (!uaddr)
+            continue
+        if (u.workspaceName === CLOAK_WORKSPACE || u.workspaceName === "cloak")
+            continue
+        cmds.push(alphaCmd(uaddr, alpha))
+        if (opts.dimaround)
+            cmds.push(dimaroundCmd(uaddr, true))
     }
     return cmds
+}
+
+function cloakCommands(marked, unmarked, options) {
+    var opts = options || {}
+    var cmds = moveCommands(marked)
+    if (opts.dimOthers !== false)
+        cmds = cmds.concat(dimCommands(unmarked, opts))
+    return cmds
+}
+
+function dispatchMoveArgv(addr) {
+    return ["hyprctl", "dispatch", "movetoworkspacesilent", CLOAK_WORKSPACE + "," + addrSpec(addr)]
 }
 
 function restoreCommands(plan) {

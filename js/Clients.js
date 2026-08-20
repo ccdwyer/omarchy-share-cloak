@@ -29,6 +29,25 @@ function parseClients(raw) {
     return parsed && parsed.length ? parsed : []
 }
 
+function parseClientsResult(raw, exitCode) {
+    if (exitCode && Number(exitCode) !== 0)
+        return { ok: false, clients: [] }
+    if (raw === undefined || raw === null || String(raw).trim() === "")
+        return { ok: false, clients: [] }
+    if (typeof raw !== "string") {
+        var list = raw && raw.length ? raw : []
+        return { ok: true, clients: captureAll(list) }
+    }
+    try {
+        var parsed = JSON.parse(raw)
+        if (!parsed || Object.prototype.toString.call(parsed) !== "[object Array]")
+            return { ok: false, clients: [] }
+        return { ok: true, clients: captureAll(parsed) }
+    } catch (e) {
+        return { ok: false, clients: [] }
+    }
+}
+
 function parseList(raw) {
     var parsed = parseJson(raw, [])
     return parsed && parsed.length ? parsed : []

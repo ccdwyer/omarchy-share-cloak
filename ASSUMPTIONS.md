@@ -28,21 +28,25 @@ Conservative choices where the Omarchy / Quickshell / Hyprland API was not 100% 
 - **`screencast>>STATE,OWNER`**: state `0/1`, owner `0` = monitor, `1` = window. `pw-dump` polling engages if the event never fires.
 - Workspace guard decides **synchronously from the event payload**.
 - Special workspace: `special:cloak`. Restore: `movetoworkspacesilent`, plus `movewindowpixel` / `resizewindowpixel` for floating geometry.
-- Dim-others: `setprop address:0x… alpha`. Prior alpha/dimaround are snapshotted from the client object when present, otherwise Hyprland's default (`1` / `0`). At uncloak we `hyprctl getprop` each owned dim address; restore runs only when the live value still equals the plugin-applied `to`. User setprop mid-cloak is therefore preserved when observable.
+- Dim-others: `hyprctl getprop address:0x… alpha` (and `dimaround` if enabled) **before** `setprop`. `hyprctl clients -j` does not include these properties. If getprop fails, that window is not dimmed and no dim mutation is recorded (we never invent `from: 1`). At uncloak we getprop again and restore only when live still equals the applied `to`.
+- Protection-critical work is the special-workspace **move**. Move batches are verified on `clients -j` before reporting `cloaked`. Dim batches are optional; a dim failure does not claim a successful vanish it did not perform, and does not un-cloak a verified vanish.
+- Catch-all / newly-marked moves go through `hyprctl dispatch` (checked exit code) and a follow-up `clients -j` that the address is on `special:cloak`. Failed hides are toasted; they are not recorded as owned.
+- Uncloak requires a valid `clients -j` snapshot (exit 0 + JSON array). Restore batches are checked; a follow-up `clients -j` must show owned moved windows **off** `special:cloak`. Any failure keeps `session.json` and offers Super+F9 retry. Session is cleared only after a verified restore (or a verified complete rollback of a failed cloak).
 - Address spelling is lowercase `0x…`.
 - `hyprctl -j clients|monitors|workspaces|activewindow|version` and `hyprctl getprop` exist.
 
 ## Mako
 
-- `makoctl mode` lists **currently enabled** modes, not configured modes. Configured names are read from `~/.config/mako/config` (`[mode=…]`) when that file exists.
-- A DND candidate (`dnd`, `do-not-disturb`, …) is `-a` added only if it is not already current. Ownership is recorded only after exit code 0. Restore is `-r` only for a mode this plugin added. If the user already had DND on, we leave it on and do not remove it.
-- If `makoctl` is missing or every add fails, cloak continues with `notifications: unmanaged`.
+- `makoctl mode` lists **currently enabled** modes. Suppression modes are only those `[mode=name]` sections in `~/.config/mako/config` whose body sets `invisible=1` (or `inhibit=1`). A mode that is merely named `dnd` is not enough.
+- No guessed `makoctl mode -a dnd` when config has no suppression section — that add can succeed without hiding notifications.
+- After a successful `-a`, Cloak re-reads `makoctl mode` and records ownership only if the mode is actually current. Restore is `-r` only for a mode this plugin added.
+- If `makoctl` is missing, config has no suppression mode, or add+verify fails, cloak continues with `notifications: unmanaged`.
 
 ## Helper
 
 - Tribunal deleted the Go PipeWire daemon. Detection is compositor IPC + `pw-dump`.
-- The competition brief still asked for a helper binary: Rust `cloak-probe` + POSIX `compat/cloak-probe.sh`. QML never requires it.
-- `src/cloak-probe/target/` and review-harness files (`.gpt_review_*`, `.review_prompt.md`, `.serena/`) are gitignored and not part of the plugin.
+- The competition brief still asked for a helper binary: Rust `cloak-probe` + POSIX `compat/cloak-probe.sh`. QML never requires it. This Mac has no Linux cross-toolchain, so no Linux binary is committed. `.github/workflows/ci.yml` builds and uploads `cloak-probe` on Ubuntu; Omarchy users run `./build.sh`.
+- Submission archives must be `git archive` / `scripts/pack-plugin.sh` so `src/cloak-probe/target/` and review-harness debris in the working tree are not packed. Those files are left on disk (do not delete review logs).
 
 ## Demo GIF
 

@@ -1,10 +1,12 @@
 .pragma library
 
 // mako-only DND.
-// `makoctl mode` lists currently *enabled* modes, not modes configured in
-// mako/config. A DND candidate is added only when it is not already current.
-// Ownership is recorded only after a successful add; restore removes only
-// a mode this plugin added.
+// `makoctl mode` lists currently *enabled* modes. Configured suppression
+// modes are `[mode=name]` sections that actually hide notifications
+// (`invisible=1` / `inhibit=1`). Guessed names are never added: an
+// unconfigured `makoctl mode -a dnd` can succeed without suppressing
+// anything. Ownership is recorded only after a successful add that is
+// then visible in `makoctl mode`; restore removes only a mode we added.
 
 var CANDIDATES = ["dnd", "do-not-disturb", "donotdisturb", "away", "silent", "disturb"]
 
@@ -29,32 +31,38 @@ function parseModes(text) {
     return modes
 }
 
-function parseConfigModes(text) {
+function sectionSuppresses(body) {
+    var src = String(body || "")
+    if (/^\s*invisible\s*=\s*(1|true|yes|on)\s*$/im.test(src))
+        return true
+    if (/^\s*inhibit\s*=\s*(1|true|yes|on)\s*$/im.test(src))
+        return true
+    return false
+}
+
+function parseSuppressionModes(text) {
     var src = String(text || "")
     var modes = []
     var seen = {}
     var re = /\[mode=([^\]]+)\]/g
     var m
+    var matches = []
     while ((m = re.exec(src))) {
-        var name = String(m[1] || "").trim()
+        matches.push({ name: String(m[1] || "").trim(), index: m.index, end: re.lastIndex })
+    }
+    for (var i = 0; i < matches.length; i++) {
+        var name = matches[i].name
         if (!name || seen[name])
+            continue
+        var start = matches[i].end
+        var stop = i + 1 < matches.length ? matches[i + 1].index : src.length
+        var body = src.slice(start, stop)
+        if (!sectionSuppresses(body))
             continue
         seen[name] = true
         modes.push(name)
     }
     return modes
-}
-
-function pickMode(available) {
-    var list = available || []
-    var lower = {}
-    for (var i = 0; i < list.length; i++)
-        lower[String(list[i]).toLowerCase()] = list[i]
-    for (var c = 0; c < CANDIDATES.length; c++) {
-        if (lower[CANDIDATES[c]])
-            return lower[CANDIDATES[c]]
-    }
-    return ""
 }
 
 function inList(list, mode) {
@@ -67,41 +75,35 @@ function inList(list, mode) {
     return false
 }
 
-function tryModes(current, configured) {
-    var pool = CANDIDATES
-    var conf = configured || []
-    var out = []
-    var i
-    if (conf.length) {
-        pool = []
-        for (i = 0; i < CANDIDATES.length; i++) {
-            if (inList(conf, CANDIDATES[i]))
-                pool.push(pickNamed(conf, CANDIDATES[i]))
-        }
-        for (i = 0; i < conf.length; i++) {
-            if (inList(CANDIDATES, conf[i]) && !inList(pool, conf[i]))
-                pool.push(conf[i])
-        }
-    }
-    for (i = 0; i < pool.length; i++) {
-        var name = pool[i]
-        if (!name)
-            continue
-        if (inList(current, name))
-            continue
-        if (!inList(out, name))
-            out.push(name)
-    }
-    return out
-}
-
 function pickNamed(list, candidate) {
     var want = String(candidate || "").toLowerCase()
     for (var i = 0; i < (list || []).length; i++) {
         if (String(list[i]).toLowerCase() === want)
             return list[i]
     }
-    return candidate
+    return ""
+}
+
+function pickSuppression(current, configured) {
+    var conf = configured || []
+    for (var i = 0; i < conf.length; i++) {
+        if (inList(current, conf[i]))
+            return pickNamed(current, conf[i]) || conf[i]
+    }
+    return ""
+}
+
+function tryModes(current, configured) {
+    var conf = configured || []
+    var out = []
+    for (var i = 0; i < conf.length; i++) {
+        var name = conf[i]
+        if (!name || inList(current, name))
+            continue
+        if (!inList(out, name))
+            out.push(name)
+    }
+    return out
 }
 
 function inspect(currentText, exitCode, configText) {
@@ -121,11 +123,10 @@ function inspect(currentText, exitCode, configText) {
         }
     }
     var current = parseModes(currentText)
-    var configured = parseConfigModes(configText)
-    var alreadyMode = pickMode(current)
+    var configured = parseSuppressionModes(configText)
+    var alreadyMode = pickSuppression(current, configured)
     var tries = tryModes(current, configured)
-    var alreadyActive = !!alreadyMode
-    if (alreadyActive) {
+    if (alreadyMode) {
         return {
             manager: "mako",
             note: "",
@@ -169,4 +170,8 @@ function restoreArgv(mode) {
 
 function alreadyHas(current, mode) {
     return inList(current, mode)
+}
+
+function isVerifiedCurrent(currentText, mode) {
+    return inList(parseModes(currentText), mode)
 }
