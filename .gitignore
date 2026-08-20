@@ -1,0 +1,6 @@
+bin/cloak-probe
+src/cloak-probe/target/
+.DS_Store
+*.swp
+.grok_impl.log
+.impl_prompt.md

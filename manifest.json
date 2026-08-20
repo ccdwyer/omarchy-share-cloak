@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.chris.share-cloak",
+  "name": "Share Cloak",
+  "version": "1.0.0",
+  "author": "chris",
+  "license": "MIT",
+  "description": "One key builds a presenter desktop: marked windows vanish, notifications pause, a clean plate covers the wallpaper, and an ON AIR frame stays up until you uncloak.",
+  "kinds": ["service", "overlay", "bar-widget"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "overlay": "Overlay.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Share Cloak",
+    "category": "Desktop",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "autoCloak": true,
+      "workspaceGuard": true,
+      "dimOthers": true,
+      "coverCards": true
+    },
+    "schema": [
+      { "key": "autoCloak", "type": "boolean", "label": "Auto-cloak when a share starts" },
+      { "key": "workspaceGuard", "type": "boolean", "label": "Cover unsafe workspaces" },
+      { "key": "dimOthers", "type": "boolean", "label": "Dim unmarked windows" },
+      { "key": "coverCards", "type": "boolean", "label": "Show cover cards for hidden windows" }
+    ]
+  }
+}

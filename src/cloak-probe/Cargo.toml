@@ -1,0 +1,19 @@
+[package]
+name = "cloak-probe"
+version = "1.0.0"
+edition = "2021"
+description = "pw-dump screencast detector, session chmod, and clients-diff for Share Cloak"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "cloak-probe"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

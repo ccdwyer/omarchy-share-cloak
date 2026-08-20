@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "marks": [
+    { "class": "Signal", "title": ".*" },
+    { "class": "Code", "title": ".*" }
+  ]
+}

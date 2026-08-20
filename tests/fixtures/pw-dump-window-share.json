@@ -1,0 +1,16 @@
+[
+  {
+    "id": 90,
+    "type": "PipeWire:Interface:Node",
+    "info": {
+      "state": "running",
+      "props": {
+        "media.class": "Stream/Output/Video",
+        "node.name": "xdg-desktop-portal-hyprland",
+        "pipewire.access.portal.type": "screencast",
+        "pipewire.access.portal.source": "window",
+        "window.x11.id": 12345
+      }
+    }
+  }
+]

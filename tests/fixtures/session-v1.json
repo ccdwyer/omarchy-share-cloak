@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "schema": "share-cloak.session",
+  "startedAt": 1700000000000,
+  "phase": "cloaked",
+  "reason": "screencast",
+  "share": { "kind": "monitor", "owner": 0, "source": "screencast" },
+  "safeWorkspaces": [{ "id": 1, "name": "1", "monitor": "DP-1" }],
+  "specialWorkspaces": [],
+  "notification": {
+    "manager": "mako",
+    "owned": true,
+    "previousModes": ["default"],
+    "appliedMode": "dnd"
+  },
+  "clients": [],
+  "mutations": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "owned": true,
+      "address": "0x64cea2525760",
+      "class": "Signal",
+      "title": "Signal — 3 unread",
+      "fromWorkspace": "1",
+      "fromWorkspaceId": 1,
+      "toWorkspace": "special:cloak",
+      "at": [40, 48],
+      "size": [720, 900],
+      "floating": false
+    },
+    {
+      "id": "m2",
+      "kind": "move",
+      "owned": true,
+      "address": "0x64cea2526000",
+      "class": "Code",
+      "title": ".env — secrets",
+      "fromWorkspace": "1",
+      "fromWorkspaceId": 1,
+      "toWorkspace": "special:cloak",
+      "at": [780, 48],
+      "size": [1100, 900],
+      "floating": false
+    },
+    {
+      "id": "m3",
+      "kind": "alpha",
+      "owned": true,
+      "address": "0x64cea2527000",
+      "from": 1,
+      "to": 0.85
+    },
+    {
+      "id": "m4",
+      "kind": "mako-mode",
+      "owned": true,
+      "from": ["default"],
+      "to": "dnd"
+    }
+  ],
+  "unrestorable": [],
+  "mutationSeq": 4
+}

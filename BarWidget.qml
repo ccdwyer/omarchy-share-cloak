@@ -1,0 +1,128 @@
+import QtQuick
+import Quickshell
+import qs.Commons
+import qs.Ui
+import "js/Config.js" as Config
+import "js/State.js" as State
+
+BarWidget {
+  id: root
+  moduleName: "io.github.chris.share-cloak"
+
+  property bool autoCloak: true
+  property bool workspaceGuard: true
+  property bool dimOthers: true
+  property bool coverCards: true
+
+  property string barState: "idle"
+  property string chipText: "cloak"
+  property string phase: "idle"
+
+  readonly property var cloakService: {
+    if (bar && bar.shell && typeof bar.shell.firstPartyServiceFor === "function") {
+      var s = bar.shell.firstPartyServiceFor(root.moduleName)
+      if (s)
+        return s
+    }
+    if (bar && bar.shell && typeof bar.shell.serviceFor === "function")
+      return bar.shell.serviceFor(root.moduleName)
+    return null
+  }
+
+  function pushSettings() {
+    Config.applySettings({
+      autoCloak: root.autoCloak,
+      workspaceGuard: root.workspaceGuard,
+      dimOthers: root.dimOthers,
+      coverCards: root.coverCards
+    })
+    if (cloakService && typeof cloakService.applyInjectedSettings === "function")
+      cloakService.applyInjectedSettings()
+  }
+
+  function refresh() {
+    var snap = State.snapshot()
+    root.barState = snap.barState
+    root.phase = snap.phase
+    root.chipText = State.chipLabel()
+  }
+
+  function callToggle() {
+    if (cloakService && typeof cloakService.toggleCloak === "function") {
+      cloakService.toggleCloak()
+      return
+    }
+    if (bar && bar.shell && typeof bar.shell.call === "function") {
+      bar.shell.call(root.moduleName, "toggle", "")
+      return
+    }
+    Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, "toggle"])
+  }
+
+  function openMarks() {
+    if (cloakService && typeof cloakService.openMarks === "function") {
+      cloakService.openMarks()
+      return
+    }
+    if (bar && bar.shell && typeof bar.shell.call === "function") {
+      bar.shell.call(root.moduleName, "openMarks", "")
+      return
+    }
+    Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, "openMarks"])
+  }
+
+  function tooltip() {
+    if (root.barState === "onair")
+      return "Share Cloak — ON AIR. Left: uncloak. Right: mark windows."
+    if (root.barState === "restore")
+      return "Share Cloak — interrupted session. Left: restore windows."
+    if (root.barState === "armed")
+      return "Share Cloak — watching for a share. Left: cloak now. Right: mark windows."
+    return "Share Cloak — auto-cloak is off. Left: cloak. Right: mark windows."
+  }
+
+  implicitWidth: button.implicitWidth
+  implicitHeight: button.implicitHeight
+
+  onAutoCloakChanged: root.pushSettings()
+  onWorkspaceGuardChanged: root.pushSettings()
+  onDimOthersChanged: root.pushSettings()
+  onCoverCardsChanged: root.pushSettings()
+
+  Timer {
+    interval: 250
+    running: true
+    repeat: true
+    onTriggered: root.refresh()
+  }
+
+  WidgetButton {
+    id: button
+    anchors.fill: parent
+    bar: root.bar
+    text: root.chipText
+    tooltipText: root.tooltip()
+    onPressed: function(buttonCode) {
+      if (buttonCode === Qt.RightButton)
+        root.openMarks()
+      else
+        root.callToggle()
+    }
+  }
+
+  Rectangle {
+    visible: root.barState === "onair"
+    anchors.right: parent.right
+    anchors.top: parent.top
+    anchors.margins: 2
+    width: 7
+    height: 7
+    radius: 4
+    color: Color.accent
+  }
+
+  Component.onCompleted: {
+    root.pushSettings()
+    root.refresh()
+  }
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "address": "0x64cea2527000",
+    "mapped": true,
+    "hidden": false,
+    "at": [100, 100],
+    "size": [800, 500],
+    "workspace": { "id": 1, "name": "1" },
+    "floating": true,
+    "monitor": 0,
+    "class": "firefox",
+    "title": "Meet — standup",
+    "pid": 2203,
+    "xwayland": false,
+    "pinned": false,
+    "fullscreen": 0,
+    "fullscreenClient": 0,
+    "focusHistoryID": 0
+  }
+]

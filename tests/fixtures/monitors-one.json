@@ -1,0 +1,11 @@
+[
+  {
+    "id": 0,
+    "name": "DP-1",
+    "description": "Mock",
+    "width": 1920,
+    "height": 1080,
+    "activeWorkspace": { "id": 1, "name": "1" },
+    "specialWorkspace": { "id": 0, "name": "" }
+  }
+]

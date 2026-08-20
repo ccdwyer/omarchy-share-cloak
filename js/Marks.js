@@ -1,0 +1,154 @@
+.pragma library
+
+// Persistent match rules: class (case-insensitive exact) + title regex.
+// A class-only rule uses title ".*" so "Signal" stays marked forever.
+
+function normalizeClass(value) {
+    return String(value || "").trim()
+}
+
+function compileTitle(pattern) {
+    var src = String(pattern === undefined || pattern === null ? ".*" : pattern)
+    if (!src.length)
+        src = ".*"
+    try {
+        return { ok: true, regex: new RegExp(src, "i"), source: src }
+    } catch (e) {
+        return { ok: false, regex: null, source: src, literal: src.toLowerCase() }
+    }
+}
+
+function ruleKey(rule) {
+    if (!rule)
+        return ""
+    return normalizeClass(rule["class"]).toLowerCase() + "\n" + String(rule.title === undefined ? ".*" : rule.title)
+}
+
+function sanitize(rules) {
+    var list = rules || []
+    var out = []
+    var seen = {}
+    for (var i = 0; i < list.length; i++) {
+        var r = list[i]
+        if (!r)
+            continue
+        var klass = normalizeClass(r["class"] || r.className || r.appId)
+        if (!klass)
+            continue
+        var title = r.title === undefined || r.title === null ? ".*" : String(r.title)
+        var key = klass.toLowerCase() + "\n" + title
+        if (seen[key])
+            continue
+        seen[key] = true
+        out.push({ class: klass, title: title })
+    }
+    return out
+}
+
+function matchesRule(client, rule) {
+    if (!client || !rule)
+        return false
+    var klass = String(client["class"] || client.className || client.appId || "")
+    var title = String(client.title || "")
+    if (klass.toLowerCase() !== normalizeClass(rule["class"]).toLowerCase())
+        return false
+    var compiled = compileTitle(rule.title)
+    if (compiled.ok)
+        return compiled.regex.test(title)
+    return title.toLowerCase().indexOf(compiled.literal) >= 0
+}
+
+function isMarked(client, rules) {
+    var list = rules || []
+    for (var i = 0; i < list.length; i++) {
+        if (matchesRule(client, list[i]))
+            return true
+    }
+    return false
+}
+
+function classIsMarked(className, rules) {
+    var want = normalizeClass(className).toLowerCase()
+    if (!want)
+        return false
+    var list = rules || []
+    for (var i = 0; i < list.length; i++) {
+        if (normalizeClass(list[i] && list[i]["class"]).toLowerCase() === want)
+            return true
+    }
+    return false
+}
+
+function addClass(rules, className, titlePattern) {
+    var next = sanitize(rules)
+    var klass = normalizeClass(className)
+    if (!klass)
+        return next
+    var title = titlePattern === undefined || titlePattern === null ? ".*" : String(titlePattern)
+    var key = klass.toLowerCase() + "\n" + title
+    for (var i = 0; i < next.length; i++) {
+        if (ruleKey(next[i]) === key)
+            return next
+    }
+    next.push({ class: klass, title: title })
+    return next
+}
+
+function removeClass(rules, className) {
+    var want = normalizeClass(className).toLowerCase()
+    var list = sanitize(rules)
+    var out = []
+    for (var i = 0; i < list.length; i++) {
+        if (normalizeClass(list[i]["class"]).toLowerCase() !== want)
+            out.push(list[i])
+    }
+    return out
+}
+
+function toggleClass(rules, className, titlePattern) {
+    if (classIsMarked(className, rules))
+        return removeClass(rules, className)
+    return addClass(rules, className, titlePattern)
+}
+
+function markedClients(clients, rules) {
+    var list = clients || []
+    var out = []
+    for (var i = 0; i < list.length; i++) {
+        if (isMarked(list[i], rules))
+            out.push(list[i])
+    }
+    return out
+}
+
+function unmarkedClients(clients, rules) {
+    var list = clients || []
+    var out = []
+    for (var i = 0; i < list.length; i++) {
+        if (!isMarked(list[i], rules))
+            out.push(list[i])
+    }
+    return out
+}
+
+function uniqueClasses(clients) {
+    var list = clients || []
+    var seen = {}
+    var out = []
+    for (var i = 0; i < list.length; i++) {
+        var c = list[i]
+        var klass = String((c && (c["class"] || c.className || c.appId)) || "")
+        if (!klass)
+            continue
+        var key = klass.toLowerCase()
+        if (seen[key])
+            continue
+        seen[key] = true
+        out.push({
+            class: klass,
+            title: String((c && c.title) || ""),
+            address: c.address || ""
+        })
+    }
+    return out
+}
