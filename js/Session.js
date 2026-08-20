@@ -113,7 +113,7 @@ function recordMoves(session, marked) {
             toWorkspace: "special:cloak",
             at: c.at,
             size: c.size,
-            floating: true,
+            floating: !!c.floating,
             fullscreen: c.fullscreen,
             fullscreenClient: c.fullscreenClient,
             monitor: c.monitor
@@ -244,10 +244,14 @@ function recordCatchAll(session, fields) {
         kind: "catch-all-move",
         owned: true,
         address: fields.address,
-        class: fields["class"] || "",
+        class: fields["class"] || fields.class || "",
         title: fields.title || "",
-        fromWorkspace: fields.workspace || "",
-        toWorkspace: "special:cloak"
+        fromWorkspace: fields.workspace || fields.workspaceName || "",
+        fromWorkspaceId: fields.workspaceId,
+        toWorkspace: "special:cloak",
+        floating: !!fields.floating,
+        at: fields.at,
+        size: fields.size
     })
 }
 

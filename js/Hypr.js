@@ -119,17 +119,8 @@ function tiledMarked(marked) {
     return out
 }
 
-function hideInPlaceCommands(tiled) {
-    var cmds = []
-    for (var i = 0; i < (tiled || []).length; i++) {
-        var t = tiled[i]
-        var addr = t && (t.address || t)
-        if (!addr)
-            continue
-        cmds.push(alphaCmd(addr, 0))
-        cmds.push(setprop(addr, "nofocus", 1))
-    }
-    return cmds
+function cannotRestoreTiled(marked) {
+    return tiledMarked(marked).length > 0
 }
 
 function revealInPlaceCommands(step) {
@@ -161,8 +152,7 @@ function dimCommands(unmarked, options) {
 
 function cloakCommands(marked, unmarked, options) {
     var opts = options || {}
-    var cmds = hideInPlaceCommands(tiledMarked(marked))
-    cmds = cmds.concat(moveCommands(floatingMarked(marked)))
+    var cmds = moveCommands(marked)
     if (opts.dimOthers !== false)
         cmds = cmds.concat(dimCommands(unmarked, opts))
     return cmds
@@ -205,7 +195,7 @@ function restoreCommands(plan) {
     var steps = (plan && plan.steps) || plan || []
     var props = []
     var hides = []
-    var floating = []
+    var moves = []
     var i
     for (i = 0; i < steps.length; i++) {
         var step = steps[i]
@@ -217,26 +207,21 @@ function restoreCommands(plan) {
             props.push(dimaroundCmd(step.address, !!step.from))
         else if (step.kind === "hide-in-place")
             hides.push(step)
-        else if ((step.kind === "move" || step.kind === "catch-all-move") && step.floating)
-            floating.push(step)
-        else if ((step.kind === "move" || step.kind === "catch-all-move") && !step.floating)
-            hides.push(step)
+        else if (step.kind === "move" || step.kind === "catch-all-move")
+            moves.push(step)
     }
     var cmds = props.slice()
     for (i = 0; i < hides.length; i++) {
-        var h = hides[i]
-        if (h.kind === "hide-in-place") {
-            var rev = revealInPlaceCommands(h)
-            for (var r = 0; r < rev.length; r++)
-                cmds.push(rev[r])
-        }
+        var rev = revealInPlaceCommands(hides[i])
+        for (var r = 0; r < rev.length; r++)
+            cmds.push(rev[r])
     }
-    for (i = 0; i < floating.length; i++) {
-        var stepF = floating[i]
-        if (!stepF.address)
+    for (i = 0; i < moves.length; i++) {
+        var stepM = moves[i]
+        if (!stepM.address)
             continue
-        cmds.push(moveSilent(stepF.address, stepF.fromWorkspace || stepF.workspace || "1", stepF.fromWorkspaceId))
-        var geom = geometryCmds(stepF)
+        cmds.push(moveSilent(stepM.address, stepM.fromWorkspace || stepM.workspace || "1", stepM.fromWorkspaceId))
+        var geom = geometryCmds(stepM)
         for (var g = 0; g < geom.length; g++)
             cmds.push(geom[g])
     }

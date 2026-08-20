@@ -68,8 +68,6 @@ Item {
   property var pendingUnmarked: []
   property var pendingMako: null
   property var pendingGetprops: []
-  property var pendingTiled: []
-  property var pendingFloating: []
   property var ownedBinds: []
   property string pendingCloakReason: ""
   property bool hydrating: true
@@ -362,13 +360,14 @@ Item {
       else
         unmarked.push(clients[i])
     }
-    var floating = Hypr.floatingMarked(marked)
-    var tiled = Hypr.tiledMarked(marked)
-    Session.recordMoves(session, floating)
+    if (Hypr.cannotRestoreTiled(marked)) {
+      root.session = null
+      root.abortCloak("marked tiled windows cannot restore losslessly — float them or unmark them")
+      return
+    }
+    Session.recordMoves(session, marked)
     root.session = session
     root.pendingMarked = marked.slice()
-    root.pendingFloating = floating.slice()
-    root.pendingTiled = tiled.slice()
     root.pendingUnmarked = unmarked.slice()
 
     State.setNotification(mako.alreadyActive ? "mako" : (mako.ok ? "mako" : "unmanaged"), mako.alreadyActive ? "" : (mako.ok ? "" : mako.note))
@@ -380,7 +379,7 @@ Item {
     persistSession()
     root.summonOverlay(root.overlayPayload())
 
-    root.snapshotTiledThenCloak(tiled, floating)
+    root.vanishThenCloak(marked)
   }
 
   function splitRetry(commands, done) {
@@ -421,20 +420,12 @@ Item {
     })
   }
 
-  function snapshotTiledThenCloak(tiled, floating) {
-    var jobs = []
-    var i
-    for (i = 0; i < (tiled || []).length; i++)
-      jobs.push({ address: tiled[i].address, kind: "alpha" })
-    root.pendingGetprops = jobs
-    root.fillGetprops((tiled || []).slice(), function(enriched) {
-      Session.recordHideInPlace(root.session, enriched)
-      persistSession()
-      var cmds = Hypr.hideInPlaceCommands(enriched).concat(Hypr.moveCommands(floating))
-      root.pendingBatches = Hypr.chunk(cmds, 20)
-      root.flushBatches(function(ok) {
-        root.verifyAndFinishCloak(ok)
-      })
+  function vanishThenCloak(marked) {
+    persistSession()
+    var cmds = Hypr.moveCommands(marked)
+    root.pendingBatches = Hypr.chunk(cmds, 20)
+    root.flushBatches(function(ok) {
+      root.verifyAndFinishCloak(ok)
     })
   }
 
@@ -448,10 +439,9 @@ Item {
       var live = parsed.clients
       root.lastClients = live
       State.setClients(live)
-      var leaked = Clients.markedStillVisible(root.pendingFloating, live)
-      var displaced = Clients.tiledLayoutChanged(root.pendingTiled, live)
-      if (!moveOk || leaked.length || displaced.length) {
-        var why = leaked.length ? "marked floating windows still visible" : (displaced.length ? "tiled layout changed" : "cloak batch failed")
+      var leaked = Clients.markedStillVisible(root.pendingMarked, live)
+      if (!moveOk || leaked.length) {
+        var why = leaked.length ? "marked windows still visible" : "cloak batch failed"
         root.rollbackCloak(live, why)
         return
       }
@@ -548,7 +538,7 @@ Item {
       return
     }
     State.setError(reason || "cloak failed")
-    State.setToast("cloak failed — protection not active")
+    State.setToast(reason || "cloak failed — protection not active")
     State.enterResting(Config.autoCloak, true)
     State.overlayMode = "toast"
     root.summonOverlay(JSON.stringify({ mode: "toast" }))
@@ -791,41 +781,21 @@ Item {
   }
 
   function cloakOneClient(client, fields, done) {
-    if (client.floating) {
-      root.cloakAddressChecked(client.address, function(ok) {
-        if (ok) {
-          if (fields)
-            Session.recordCatchAll(root.session, fields)
-          else if (!Session.findOwnedMove(root.session, client.address))
-            Session.recordMoves(root.session, [client])
+    root.cloakAddressChecked(client.address, function(ok) {
+      if (ok) {
+        if (fields) {
+          fields.floating = client.floating
+          fields.at = client.at
+          fields.size = client.size
+          fields.workspaceName = client.workspaceName
+          fields.workspaceId = client.workspaceId
+          Session.recordCatchAll(root.session, fields)
+        } else if (!Session.findOwnedMove(root.session, client.address)) {
+          Session.recordMoves(root.session, [client])
         }
-        if (done)
-          done(ok)
-      })
-      return
-    }
-    enqueueWork(Hypr.getpropArgv(client.address, "alpha"), function(text, code) {
-      if (Number(code) === 0) {
-        var v = Hypr.parseGetprop(text)
-        if (v !== null)
-          client.alpha = v
       }
-      enqueueWork(Hypr.batchArgv(Hypr.formatBatch(Hypr.hideInPlaceCommands([client]))), function(t2, c2) {
-        if (Number(c2) !== 0) {
-          if (done)
-            done(false)
-          return
-        }
-        enqueueWork(["hyprctl", "-j", "clients"], function(t3, c3) {
-          var parsed = Clients.parseClientsResult(t3, c3)
-          var displaced = parsed.ok ? Clients.tiledLayoutChanged([client], parsed.clients) : [client]
-          var ok = parsed.ok && displaced.length === 0
-          if (ok && !Session.findOwnedMove(root.session, client.address))
-            Session.recordHideInPlace(root.session, [client])
-          if (done)
-            done(ok)
-        })
-      })
+      if (done)
+        done(ok)
     })
   }
 
@@ -1052,8 +1022,14 @@ Item {
   function teardownBinds() {
     var list = (root.ownedBinds || []).slice()
     root.ownedBinds = []
-    for (var i = 0; i < list.length; i++)
-      enqueueWork(Binds.unbindArgv(list[i].key), null)
+    if (!list.length)
+      return
+    enqueueWork(["hyprctl", "-j", "binds"], function(text, code) {
+      var binds = Number(code) === 0 ? Binds.parseBinds(text) : []
+      var keys = Binds.keysToUnbind(list, binds, root.pluginId)
+      for (var i = 0; i < keys.length; i++)
+        enqueueWork(Binds.unbindArgv(keys[i]), null)
+    })
   }
 
   function ping() { return "ok" }

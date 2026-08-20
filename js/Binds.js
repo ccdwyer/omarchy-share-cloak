@@ -77,3 +77,16 @@ function bindArgv(key, method) {
 function unbindArgv(key) {
     return ["hyprctl", "keyword", "unbind", "SUPER," + String(key)]
 }
+
+function keysToUnbind(owned, binds, pluginId) {
+    var out = []
+    var list = owned || []
+    for (var i = 0; i < list.length; i++) {
+        var key = list[i] && list[i].key !== undefined ? list[i].key : list[i]
+        if (!key)
+            continue
+        if (oursPresent(binds, SUPER, key, pluginId))
+            out.push(String(key))
+    }
+    return out
+}

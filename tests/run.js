@@ -230,7 +230,7 @@ test("pwdump: window share flag from portal source", () => {
   assert.strictEqual(d.windowShare, true)
 })
 
-test("hypr: cloak batch hides tiled in place and dims unmarked", () => {
+test("hypr: cloak batch vanishes every marked window onto special:cloak", () => {
   const clients = Clients.captureAll(jsonFix("clients-messy.json"))
   const marked = Marks.markedClients(clients, [
     { class: "Signal", title: ".*" },
@@ -242,11 +242,25 @@ test("hypr: cloak batch hides tiled in place and dims unmarked", () => {
   ])
   const cmds = Hypr.cloakCommands(marked, unmarked, { dimOthers: true, dimAlpha: 0.85 })
   const batch = Hypr.formatBatch(cmds)
-  assert.ok(batch.indexOf("setprop address:0x64cea2525760 alpha 0") >= 0)
-  assert.ok(batch.indexOf("setprop address:0x64cea2526000 alpha 0") >= 0)
-  assert.ok(batch.indexOf("movetoworkspacesilent special:cloak,address:0x64cea2525760") < 0)
+  assert.ok(batch.indexOf("movetoworkspacesilent special:cloak,address:0x64cea2525760") >= 0)
+  assert.ok(batch.indexOf("movetoworkspacesilent special:cloak,address:0x64cea2526000") >= 0)
+  assert.ok(batch.indexOf("setprop address:0x64cea2525760 alpha 0") < 0)
+  assert.ok(batch.indexOf("nofocus 1") < 0)
   assert.ok(batch.indexOf("setprop address:0x64cea2527000 alpha 0.85") >= 0)
   assert.ok(batch.indexOf("special:cloak,address:0x64cea2527000") < 0)
+})
+
+test("hypr: tiled marked windows cannot restore losslessly", () => {
+  const clients = Clients.captureAll(jsonFix("clients-messy.json"))
+  const marked = Marks.markedClients(clients, [
+    { class: "Signal", title: ".*" },
+    { class: "Code", title: ".*" }
+  ])
+  assert.ok(Hypr.cannotRestoreTiled(marked))
+  const floatingOnly = marked.filter((c) => c.floating)
+  assert.strictEqual(Hypr.cannotRestoreTiled(floatingOnly), false)
+  const firefox = clients.filter((c) => c.floating)
+  assert.strictEqual(Hypr.cannotRestoreTiled(firefox), false)
 })
 
 test("hypr: restore floating geometry after move", () => {
@@ -268,7 +282,26 @@ test("hypr: restore floating geometry after move", () => {
   assert.ok(batch.indexOf("resizewindowpixel exact 300 200,address:0xabc") >= 0)
 })
 
-test("hypr: restore hide-in-place does not move tiled windows", () => {
+test("hypr: restore moves every vanished window back", () => {
+  const cmds = Hypr.restoreCommands({
+    steps: [
+      {
+        kind: "move",
+        address: "0xaaa",
+        fromWorkspace: "1",
+        fromWorkspaceId: 1,
+        floating: false,
+        at: [40, 48],
+        size: [720, 900]
+      }
+    ]
+  })
+  const batch = Hypr.formatBatch(cmds)
+  assert.ok(batch.indexOf("movetoworkspacesilent 1,address:0xaaa") >= 0)
+  assert.ok(batch.indexOf("settiled address:0xaaa") >= 0)
+})
+
+test("hypr: old hide-in-place sessions still restore alpha", () => {
   const cmds = Hypr.restoreCommands({
     steps: [
       {
@@ -283,8 +316,6 @@ test("hypr: restore hide-in-place does not move tiled windows", () => {
   const batch = Hypr.formatBatch(cmds)
   assert.ok(batch.indexOf("setprop address:0xaaa alpha 1") >= 0)
   assert.ok(batch.indexOf("nofocus 0") >= 0)
-  assert.ok(batch.indexOf("movetoworkspacesilent") < 0)
-  assert.ok(batch.indexOf("movewindowpixel") < 0)
 })
 
 test("binds: conflict vs ours", () => {
@@ -295,6 +326,21 @@ test("binds: conflict vs ours", () => {
   assert.ok(Binds.conflict(binds, 64, "F9", "io.github.chris.share-cloak"))
   assert.strictEqual(Binds.conflict(binds, 64, "F10", "io.github.chris.share-cloak"), null)
   assert.ok(Binds.oursPresent(binds, 64, "F10", "io.github.chris.share-cloak"))
+})
+
+test("binds: teardown unbinds only live plugin actions", () => {
+  const owned = [{ key: "F9" }, { key: "F10" }]
+  const stillOurs = [
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak toggle ''" },
+    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
+  ]
+  assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, stillOurs, "io.github.chris.share-cloak")), JSON.stringify(["F9", "F10"]))
+  const userRebound = [
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "kitty" },
+    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
+  ]
+  assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, userRebound, "io.github.chris.share-cloak")), JSON.stringify(["F10"]))
+  assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, [], "io.github.chris.share-cloak")), JSON.stringify([]))
 })
 
 test("hypr: workspace names with separators fall back to id", () => {
@@ -431,12 +477,7 @@ test("session: cloak records owned moves and restore reverses them", () => {
     safeWorkspaces: [{ id: 1, name: "1" }],
     clients
   })
-  Session.recordMoves(session, marked.filter((c) => c.floating))
-  Session.recordHideInPlace(session, marked.filter((c) => !c.floating).map((c) => {
-    const copy = JSON.parse(JSON.stringify(c))
-    copy.alpha = 1
-    return copy
-  }))
+  Session.recordMoves(session, marked)
   const unmarked = Marks.unmarkedClients(clients, jsonFix("marks.json").marks).map((c) => {
     const copy = JSON.parse(JSON.stringify(c))
     copy.alpha = 1
@@ -444,14 +485,16 @@ test("session: cloak records owned moves and restore reverses them", () => {
   })
   Session.recordDims(session, unmarked, 0.85, false)
   assert.ok(session.mutations.length >= 3)
-  const live = marked.filter((c) => !c.floating).map((c) => {
+  const live = marked.map((c) => {
     const copy = JSON.parse(JSON.stringify(c))
-    copy.alpha = 0
+    copy.workspace = { id: -98, name: "special:cloak" }
+    copy.workspaceName = "special:cloak"
+    copy.workspaceId = -98
     return copy
   }).concat(unmarked)
   const plan = Session.restorePlan(session, live)
-  const hides = plan.steps.filter((s) => s.kind === "hide-in-place")
-  assert.strictEqual(hides.length, 2)
+  const moves = plan.steps.filter((s) => s.kind === "move")
+  assert.strictEqual(moves.length, 2)
   assert.strictEqual(plan.unrestorable.length, 0)
 })
 
@@ -628,8 +671,6 @@ function applyCloakSim(clients, session) {
     const live = byAddr[m.address]
     if (!live)
       return
-    if (m.kind === "hide-in-place")
-      live.alpha = 0
     if (m.kind === "move" || m.kind === "catch-all-move") {
       live.workspace = { id: -98, name: "special:cloak" }
       live.workspaceName = "special:cloak"
@@ -652,8 +693,6 @@ function applyRestoreSim(clients, plan) {
     const live = byAddr[s.address]
     if (!live)
       return
-    if (s.kind === "hide-in-place" && s.from !== undefined)
-      live.alpha = s.from
     if (s.kind === "move" || s.kind === "catch-all-move") {
       live.workspace = { id: s.fromWorkspaceId || Number(s.fromWorkspace) || 1, name: s.fromWorkspace }
       live.workspaceName = s.fromWorkspace
@@ -686,22 +725,24 @@ test("round-trip soak: 200 randomized cloak/uncloak cycles with ownership", () =
     })
     const marked = Marks.markedClients(original, marks)
     const unmarked = Marks.unmarkedClients(original, marks)
-    Session.recordMoves(session, marked.filter((c) => c.floating))
-    Session.recordHideInPlace(session, marked.filter((c) => !c.floating))
+    if (Hypr.cannotRestoreTiled(marked)) {
+      assert.strictEqual(session.mutations.length, 0, "cycle " + cycle + " refused tiled cloak")
+      continue
+    }
+    Session.recordMoves(session, marked)
     Session.recordDims(session, unmarked, 0.85, false)
     if (cycle % 7 === 0 && marked.length) {
       Session.recordCatchAll(session, {
         address: "0xcafe" + cycle.toString(16),
         class: "Signal",
         title: "dialog",
-        workspace: "1"
+        workspace: "1",
+        floating: true
       })
     }
     let live = applyCloakSim(original, session)
-    const leaked = Clients.markedStillVisible(marked.filter((c) => c.floating), live)
-    assert.strictEqual(leaked.length, 0, "cycle " + cycle + " leaked floating windows")
-    const displaced = Clients.tiledLayoutChanged(marked.filter((c) => !c.floating), live)
-    assert.strictEqual(displaced.length, 0, "cycle " + cycle + " tiled layout changed")
+    const leaked = Clients.markedStillVisible(marked, live)
+    assert.strictEqual(leaked.length, 0, "cycle " + cycle + " leaked marked windows")
 
     if (cycle % 5 === 0 && marked.length) {
       const victim = marked[0]
@@ -756,6 +797,57 @@ test("round-trip soak: 200 randomized cloak/uncloak cycles with ownership", () =
         assert.strictEqual(now.alpha, 1, "cycle " + cycle + " dim restored")
     })
   }
+})
+
+test("round-trip soak: 200 floating vanish/restore cycles", () => {
+  const marks = [
+    { class: "Signal", title: ".*" },
+    { class: "Code", title: ".*" }
+  ]
+  for (let cycle = 0; cycle < 200; cycle++) {
+    const n = 3 + (cycle % 6)
+    const original = randomClients(cycle + 1, n).map((c) => {
+      const copy = JSON.parse(JSON.stringify(c))
+      copy.floating = true
+      return copy
+    })
+    const session = Session.create({
+      clients: original,
+      safeWorkspaces: [{ id: 1, name: "1" }]
+    })
+    const marked = Marks.markedClients(original, marks)
+    const unmarked = Marks.unmarkedClients(original, marks)
+    assert.strictEqual(Hypr.cannotRestoreTiled(marked), false)
+    Session.recordMoves(session, marked)
+    Session.recordDims(session, unmarked, 0.85, false)
+    let live = applyCloakSim(original, session)
+    const leaked = Clients.markedStillVisible(marked, live)
+    assert.strictEqual(leaked.length, 0, "float cycle " + cycle + " leaked")
+    const plan = Session.restorePlan(session, live)
+    const restored = applyRestoreSim(live, plan)
+    const restoredMap = {}
+    restored.forEach((c) => {
+      restoredMap[c.address] = c
+    })
+    original.forEach((c) => {
+      const now = restoredMap[c.address]
+      if (!now)
+        return
+      if (Marks.isMarked(c, marks)) {
+        assert.strictEqual(now.workspaceName, c.workspaceName, "float cycle " + cycle + " marked round-trip")
+        assert.strictEqual(JSON.stringify(now.at), JSON.stringify(c.at))
+        assert.strictEqual(JSON.stringify(now.size), JSON.stringify(c.size))
+      } else {
+        assert.strictEqual(now.alpha, 1, "float cycle " + cycle + " dim restored")
+      }
+    })
+  }
+})
+
+test("clients: markedStillVisible catches tiled windows left on the shared workspace", () => {
+  const tiled = Clients.captureAll(jsonFix("clients-messy.json")).filter((c) => !c.floating)
+  const leaked = Clients.markedStillVisible(tiled, jsonFix("clients-messy.json"))
+  assert.strictEqual(leaked.length, 2)
 })
 
 function runProbe(args, stdin) {

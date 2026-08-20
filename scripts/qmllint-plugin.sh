@@ -1,5 +1,7 @@
 #!/bin/sh
-# Strict QML gate. Never converts a failed linter into success.
+# Strict QML gate. Structure check always runs. Real qmllint is required in
+# CI (and whenever SHARE_CLOAK_QMLLINT=1). A present qmllint binary is never
+# optional — its failures fail this script.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -15,14 +17,18 @@ elif [ -x /usr/lib/qt6/libexec/qmllint ]; then
   QMLLINT=/usr/lib/qt6/libexec/qmllint
 fi
 
-if [ "${SHARE_CLOAK_QMLLINT:-}" != "1" ]; then
-  echo "qmllint-plugin: structure check is the required gate (set SHARE_CLOAK_QMLLINT=1 to run host qmllint)"
-  exit 0
+require_qmllint=0
+if [ "${SHARE_CLOAK_QMLLINT:-}" = "1" ] || [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  require_qmllint=1
 fi
 
 if [ -z "$QMLLINT" ]; then
-  echo "qmllint-plugin: SHARE_CLOAK_QMLLINT=1 but qmllint is not installed"
-  exit 1
+  if [ "$require_qmllint" -eq 1 ]; then
+    echo "qmllint-plugin: qmllint is required (install qt6-declarative-dev-tools)"
+    exit 1
+  fi
+  echo "qmllint-plugin: qmllint not installed; structure check is the local gate"
+  exit 0
 fi
 
 STUB="$ROOT/tests/qml-stubs"
