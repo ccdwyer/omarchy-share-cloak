@@ -121,6 +121,8 @@ Item {
         return svc.markFocused()
       if (method === "installBinds" && typeof svc.installBinds === "function")
         return svc.installBinds(a)
+      if (method === "removeBinds" && typeof svc.removeBinds === "function")
+        return svc.removeBinds(a)
     }
     Quickshell.execDetached(["omarchy-shell", root.moduleName, method, a])
     return "queued"
@@ -129,6 +131,7 @@ Item {
   function markFocused(arg) { return root.callService("markFocused", arg) }
   function toggleMark(arg) { return root.callService("toggleMark", arg) }
   function installBinds(arg) { return root.callService("installBinds", arg) }
+  function removeBinds(arg) { return root.callService("removeBinds", arg) }
 
   function refresh() {
     var snap = State.snapshot()

@@ -448,6 +448,9 @@ test("binds: same-plugin different method is not unbound", () => {
 test("binds: empty live list offers preferred combos", () => {
   const p = Binds.plan([])
   assert.strictEqual(p.needed, true)
+  assert.strictEqual(p.canInstall, true)
+  assert.strictEqual(p.canRemove, false)
+  assert.strictEqual(p.chipLabel, "Set hotkey")
   assert.strictEqual(p.toAdd.length, 2)
   assert.strictEqual(p.toAdd[0].keys, "SUPER + F9")
   assert.strictEqual(p.toAdd[1].keys, "SUPER + F10")
@@ -456,6 +459,7 @@ test("binds: empty live list offers preferred combos", () => {
   assert.ok(lua.indexOf("omarchy-shell io.github.chris.share-cloak toggle ''") >= 0)
   assert.ok(lua.indexOf("omarchy-shell io.github.chris.share-cloak markFocused ''") >= 0)
   assert.ok(lua.indexOf("shell call") < 0)
+  assert.ok(lua.indexOf("hl.unbind") < 0)
 })
 
 test("binds: skips occupied combos and uses an alternate", () => {
@@ -470,30 +474,68 @@ test("binds: skips occupied combos and uses an alternate", () => {
   assert.ok(p.note.indexOf("SUPER + ALT + F9") >= 0)
 })
 
-test("binds: already-ours hides the offer", () => {
+test("binds: occupied stock Omarchy hotkeys are skipped, never unbound", () => {
+  const live = [
+    { modmask: 64, key: "F9", dispatcher: "fullscreen", arg: "", description: "Fullscreen" },
+    { modmask: 72, key: "F9", dispatcher: "exec", arg: "omarchy nightlight", description: "Nightlight" }
+  ]
+  const p = Binds.plan(live)
+  assert.strictEqual(p.toAdd.filter((x) => x.desc === "Share Cloak toggle").length, 0)
+  assert.ok(p.skipped.some((s) => s.keys === "SUPER + F9"))
+  const lua = Binds.luaBlock(p.toAdd)
+  assert.ok(lua.indexOf("hl.unbind") < 0)
+  assert.ok(lua.indexOf("SUPER + F9") < 0)
+})
+
+test("binds: already-ours hides the offer and lists the live keys", () => {
   const live = [
     { modmask: 64, key: "F9", dispatcher: "__lua", arg: "15", description: "Share Cloak toggle" }
   ]
   const p = Binds.plan(live)
   assert.strictEqual(p.needed, false)
   assert.strictEqual(p.already, 1)
+  assert.strictEqual(p.canInstall, false)
+  assert.strictEqual(p.canRemove, true)
+  assert.strictEqual(p.chipLabel, "Super+F9")
+  assert.ok(p.note.indexOf("Super+F9 — Share Cloak toggle") >= 0)
 })
 
-test("binds: service auto-assigns on first scan, does not keyword-bind", () => {
+test("binds: live Super+Alt variant counts as installed", () => {
+  const live = [
+    { modmask: 72, key: "F9", dispatcher: "__lua", arg: "15", description: "Share Cloak toggle" }
+  ]
+  const p = Binds.plan(live)
+  assert.strictEqual(p.needed, false)
+  assert.strictEqual(p.canRemove, true)
+  assert.strictEqual(p.toAdd.filter((x) => x.desc === "Share Cloak toggle").length, 0)
+  assert.strictEqual(p.chipLabel.indexOf("Super+Alt+F9") >= 0, true)
+})
+
+test("binds: service scans only; bar offers Set hotkey; no first-load write", () => {
   const src = fs.readFileSync(path.join(ROOT, "Service.qml"), "utf8")
   assert.ok(src.indexOf("function scanBinds") >= 0)
   assert.ok(src.indexOf("Qt.callLater(root.scanBinds)") >= 0)
-  assert.ok(src.indexOf("Binds.claimAuto()") >= 0)
+  assert.ok(src.indexOf("Binds.claimAuto()") < 0)
+  assert.ok(src.indexOf('installBinds("auto")') < 0)
+  assert.ok(src.indexOf('String(arg || "") === "auto"') >= 0)
   assert.ok(src.indexOf("notifyNewBinds") >= 0)
   assert.ok(src.indexOf("compat/install-binds.py") >= 0)
   assert.ok(src.indexOf("Binds.bindArgv") < 0)
   assert.ok(src.indexOf("function installBinds") >= 0)
+  assert.ok(src.indexOf("function removeBinds") >= 0)
   assert.ok(src.indexOf("teardownBinds") >= 0)
+  assert.ok(src.indexOf("Binds.removeArgv") >= 0)
   const overlay = fs.readFileSync(path.join(ROOT, "Overlay.qml"), "utf8")
   assert.ok(overlay.indexOf("Add keybindings") < 0)
   const bar = fs.readFileSync(path.join(ROOT, "BarWidget.qml"), "utf8")
-  assert.ok(bar.indexOf("Add keybindings") < 0)
-  assert.ok(bar.indexOf("text: \"keys\"") < 0)
+  assert.ok(bar.indexOf("Set hotkey") >= 0)
+  assert.ok(bar.indexOf("function installBinds") >= 0)
+  assert.ok(bar.indexOf("function removeBinds") >= 0)
+  assert.ok(bar.indexOf('installBinds("auto")') < 0)
+  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8")
+  assert.ok(/## Remove/.test(readme))
+  assert.ok(readme.indexOf("install-binds.py --remove") >= 0)
+  assert.ok(readme.indexOf("opt-in from the bar") >= 0)
 })
 
 test("binds: notify body lists assigned keys", () => {
@@ -503,8 +545,10 @@ test("binds: notify body lists assigned keys", () => {
   assert.strictEqual(argv[0], "omarchy")
   assert.strictEqual(argv[1], "notification")
   assert.strictEqual(argv[2], "send")
-  assert.ok(Binds.claimAuto())
-  assert.strictEqual(Binds.claimAuto(), false)
+  const rm = Binds.removeArgv("/plugin", "io.github.chris.share-cloak")
+  assert.strictEqual(rm[0], "python3")
+  assert.ok(rm[1].indexOf("compat/install-binds.py") >= 0)
+  assert.strictEqual(rm[2], "--remove")
 })
 
 test("binds: skip when preferred and alternate are taken", () => {

@@ -1118,7 +1118,14 @@ Item {
     Binds.setOffer(p)
     var binds = bindsText !== undefined ? Binds.parseBinds(bindsText) : []
     root.ownedBinds = Binds.ownedKeywordBinds(binds, root.pluginId)
-    State.setBindStatus(p.needed ? "offer" : "", p.note || "")
+    var status = "none"
+    if (p.installed && p.installed.length)
+      status = "set"
+    else if (p.canInstall)
+      status = "offer"
+    else if (p.skipped && p.skipped.length)
+      status = "blocked"
+    State.setBindStatus(status, p.note || "")
     root.publish()
   }
 
@@ -1126,10 +1133,7 @@ Item {
     enqueueWork(["hyprctl", "-j", "binds"], function(text, code) {
       if (Number(code) !== 0)
         return
-      var plan = Binds.applyScan(text)
-      root.applyBindPlan(plan, text)
-      if (plan.needed && plan.toAdd && plan.toAdd.length && Binds.claimAuto())
-        root.installBinds("auto")
+      root.applyBindPlan(Binds.applyScan(text), text)
     })
   }
 
@@ -1141,6 +1145,8 @@ Item {
   }
 
   function installBinds(arg) {
+    if (String(arg || "") === "auto")
+      return "ignored"
     enqueueWork(["hyprctl", "-j", "binds"], function(text, code) {
       if (Number(code) !== 0) {
         root.bindOfferNote = "could not read keybinds"
@@ -1154,6 +1160,8 @@ Item {
         return
       }
       var lua = Binds.luaBlock(plan.toAdd)
+      if (lua.indexOf("hl.unbind") >= 0)
+        return
       enqueueWork(["python3", root.pluginDir + "/compat/install-binds.py", root.pluginId, lua], function(out, instCode) {
         if (Number(instCode) !== 0) {
           root.bindOfferNote = "could not write ~/.config/hypr/bindings.lua"
@@ -1164,6 +1172,20 @@ Item {
         root.notifyNewBinds(plan)
         Qt.callLater(root.scanBinds)
       })
+    })
+    return "ok"
+  }
+
+  function removeBinds(arg) {
+    enqueueWork(Binds.removeArgv(root.pluginDir, root.pluginId), function(out, code) {
+      if (Number(code) !== 0) {
+        root.bindOfferNote = "could not remove bindings.lua block"
+        State.setBindStatus("failed", "could not remove bindings.lua block")
+        root.publish()
+        return
+      }
+      root.teardownBinds()
+      Qt.callLater(root.scanBinds)
     })
     return "ok"
   }
@@ -1453,6 +1475,7 @@ Item {
     function recover(arg: string): string { root.recoverStaleCloak(); return root.statusJson() }
     function summon(arg: string): string { return root.summonOverlay(arg && arg.length ? arg : root.overlayPayload()) }
     function installBinds(arg: string): string { return root.installBinds(arg) }
+    function removeBinds(arg: string): string { return root.removeBinds(arg) }
   }
 
   Timer {

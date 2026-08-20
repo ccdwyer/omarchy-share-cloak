@@ -4,6 +4,7 @@ import qs.Commons
 import qs.Ui
 import "js/Config.js" as Config
 import "js/State.js" as State
+import "js/Binds.js" as Binds
 
 BarWidget {
   id: root
@@ -19,6 +20,11 @@ BarWidget {
   property string barState: "idle"
   property string chipText: "cloak"
   property string phase: "idle"
+  property string bindStatus: "offer"
+  property string bindNote: ""
+  property string bindChipText: "Set hotkey"
+  property bool offerBinds: true
+  property bool canRemoveBinds: false
 
   readonly property var cloakService: {
     if (bar && bar.pluginRegistry && typeof bar.pluginRegistry.serviceFor === "function") {
@@ -45,6 +51,12 @@ BarWidget {
     root.barState = snap.barState
     root.phase = snap.phase
     root.chipText = State.chipLabel()
+    root.bindStatus = snap.bindStatus || ""
+    root.bindNote = snap.bindNote || ""
+    var offer = Binds.offer || {}
+    root.offerBinds = !!offer.canInstall
+    root.canRemoveBinds = !!offer.canRemove
+    root.bindChipText = String(offer.chipLabel || (root.offerBinds ? "Set hotkey" : "keys"))
   }
 
   function callToggle() {
@@ -63,6 +75,22 @@ BarWidget {
     Quickshell.execDetached(["omarchy-shell", root.moduleName, "openMarks", ""])
   }
 
+  function installBinds() {
+    if (cloakService && typeof cloakService.installBinds === "function") {
+      cloakService.installBinds("")
+      return
+    }
+    Quickshell.execDetached(["omarchy-shell", root.moduleName, "installBinds", ""])
+  }
+
+  function removeBinds() {
+    if (cloakService && typeof cloakService.removeBinds === "function") {
+      cloakService.removeBinds("")
+      return
+    }
+    Quickshell.execDetached(["omarchy-shell", root.moduleName, "removeBinds", ""])
+  }
+
   function tooltip() {
     var snap = State.snapshot()
     var extra = snap.bindNote ? (" " + snap.bindNote) : ""
@@ -78,8 +106,18 @@ BarWidget {
     return "Share Cloak — auto-cloak is off. Left: cloak. Right: mark windows." + extra
   }
 
-  implicitWidth: visible ? button.implicitWidth : 0
-  implicitHeight: button.implicitHeight
+  function bindTooltip() {
+    if (root.canRemoveBinds)
+      return "Share Cloak hotkeys: " + (root.bindNote || root.bindChipText) + ". Right-click to remove this plugin's bindings.lua block."
+    if (root.offerBinds)
+      return (root.bindNote || "Set Super+F9 / Super+F10") + " — writes only free combos; occupied stock Omarchy hotkeys are skipped. Never unbinds someone else's key."
+    if (root.bindNote)
+      return "Share Cloak hotkeys unavailable: " + root.bindNote
+    return "Share Cloak hotkeys"
+  }
+
+  implicitWidth: visible ? row.implicitWidth : 0
+  implicitHeight: row.implicitHeight
 
   onAutoCloakChanged: root.pushSettings()
   onWorkspaceGuardChanged: root.pushSettings()
@@ -93,33 +131,51 @@ BarWidget {
     onTriggered: root.refresh()
   }
 
-  Item {
-    width: button.implicitWidth
-    height: button.implicitHeight
+  Row {
+    id: row
+    spacing: Style.space(4)
 
-    WidgetButton {
-      id: button
-      anchors.fill: parent
-      bar: root.bar
-      text: root.chipText
-      tooltipText: root.tooltip()
-      onPressed: function(buttonCode) {
-        if (buttonCode === Qt.RightButton)
-          root.openMarks()
-        else
-          root.callToggle()
+    Item {
+      width: button.implicitWidth
+      height: button.implicitHeight
+
+      WidgetButton {
+        id: button
+        anchors.fill: parent
+        bar: root.bar
+        text: root.chipText
+        tooltipText: root.tooltip()
+        onPressed: function(buttonCode) {
+          if (buttonCode === Qt.RightButton)
+            root.openMarks()
+          else
+            root.callToggle()
+        }
+      }
+
+      Rectangle {
+        visible: root.barState === "onair"
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: 2
+        width: 7
+        height: 7
+        radius: 4
+        color: Color.accent
       }
     }
 
-    Rectangle {
-      visible: root.barState === "onair"
-      anchors.right: parent.right
-      anchors.top: parent.top
-      anchors.margins: 2
-      width: 7
-      height: 7
-      radius: 4
-      color: Color.accent
+    WidgetButton {
+      id: bindChip
+      bar: root.bar
+      text: root.bindChipText
+      tooltipText: root.bindTooltip()
+      onPressed: function(buttonCode) {
+        if (buttonCode === Qt.LeftButton && root.offerBinds)
+          root.installBinds()
+        else if (buttonCode === Qt.RightButton && root.canRemoveBinds)
+          root.removeBinds()
+      }
     }
   }
 

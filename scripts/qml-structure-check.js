@@ -57,5 +57,15 @@ if (service.indexOf("hideTiledInPlace") < 0 || service.indexOf("recordInPlaceHid
   fail("Service.qml must hide tiled windows in place so the layout does not reflow")
 if (service.indexOf("Component.onDestruction") < 0)
   fail("Service.qml must unbind on destruction")
+if (service.indexOf("claimAuto") >= 0 || service.indexOf('installBinds("auto")') >= 0)
+  fail("Service.qml must not auto-install keybinds on first load")
+if (service.indexOf("function removeBinds") < 0)
+  fail("Service.qml must offer removeBinds for the bindings.lua block")
+
+const bar = fs.readFileSync(path.join(ROOT, "BarWidget.qml"), "utf8")
+if (bar.indexOf("Set hotkey") < 0)
+  fail("BarWidget.qml must offer Set hotkey when none is installed")
+if (bar.indexOf("function removeBinds") < 0)
+  fail("BarWidget.qml must allow removing installed hotkeys")
 
 process.stdout.write("qml-structure-check: ok\n")

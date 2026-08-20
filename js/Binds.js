@@ -37,18 +37,13 @@ var CANDIDATES = [
 var offer = {
     needed: true,
     note: "",
-    installed: 0,
+    already: 0,
+    installed: [],
     toAdd: [],
-    skipped: []
-}
-
-var autoClaimed = false
-
-function claimAuto() {
-    if (autoClaimed)
-        return false
-    autoClaimed = true
-    return true
+    skipped: [],
+    chipLabel: "Set hotkey",
+    canInstall: true,
+    canRemove: false
 }
 
 function setOffer(next) {
@@ -256,11 +251,12 @@ function pickCombo(binds, candidate) {
     if (!owner)
         return { keys: candidate.keys, modmask: candidate.modmask, key: candidate.key, desc: candidate.desc, cmd: candidate.cmd, chosen: candidate.keys }
     if (owner.ours)
-        return { already: true, keys: candidate.keys, desc: candidate.desc }
+        return { already: true, keys: candidate.keys, desc: candidate.desc, chosen: candidate.keys }
     var alts = candidate.alternates || []
     for (var i = 0; i < alts.length; i++) {
         var a = alts[i]
-        if (!comboOwner(binds, a.modmask, a.key))
+        var altOwner = comboOwner(binds, a.modmask, a.key)
+        if (!altOwner)
             return {
                 keys: a.keys,
                 modmask: a.modmask,
@@ -271,36 +267,116 @@ function pickCombo(binds, candidate) {
                 preferred: candidate.keys,
                 conflict: owner.desc
             }
+        if (altOwner.ours)
+            return { already: true, keys: a.keys, desc: candidate.desc, chosen: a.keys }
     }
     return { skipped: true, keys: candidate.keys, desc: candidate.desc, conflict: owner.desc }
 }
 
+function candidateCombos(candidate) {
+    var out = [{ keys: candidate.keys, modmask: candidate.modmask, key: candidate.key, desc: candidate.desc }]
+    var alts = candidate.alternates || []
+    for (var i = 0; i < alts.length; i++) {
+        out.push({
+            keys: alts[i].keys,
+            modmask: alts[i].modmask,
+            key: alts[i].key,
+            desc: candidate.desc
+        })
+    }
+    return out
+}
+
+function liveOurs(binds) {
+    var out = []
+    for (var i = 0; i < CANDIDATES.length; i++) {
+        var combos = candidateCombos(CANDIDATES[i])
+        for (var j = 0; j < combos.length; j++) {
+            var owner = comboOwner(binds, combos[j].modmask, combos[j].key)
+            if (owner && owner.ours)
+                out.push({
+                    keys: combos[j].keys,
+                    desc: combos[j].desc,
+                    key: combos[j].key,
+                    modmask: combos[j].modmask
+                })
+        }
+    }
+    return out
+}
+
+function compactKeys(keys) {
+    return String(keys || "")
+        .replace(/SUPER \+ ALT \+ /g, "Super+Alt+")
+        .replace(/SUPER \+ SHIFT \+ /g, "Super+Shift+")
+        .replace(/SUPER \+ CTRL \+ /g, "Super+Ctrl+")
+        .replace(/SUPER \+ /g, "Super+")
+        .replace(/ \+ /g, "+")
+}
+
+function chipLabel(plan) {
+    var installed = (plan && plan.installed) || []
+    if (installed.length)
+        return installed.map(function(i) { return compactKeys(i.keys) }).join(" · ")
+    if (plan && plan.toAdd && plan.toAdd.length)
+        return "Set hotkey"
+    return "keys"
+}
+
 function plan(binds) {
+    var installed = liveOurs(binds)
     var toAdd = []
     var skipped = []
-    var already = 0
     for (var i = 0; i < CANDIDATES.length; i++) {
-        var pick = pickCombo(binds, CANDIDATES[i])
+        var candidate = CANDIDATES[i]
+        var have = false
+        for (var n = 0; n < installed.length; n++) {
+            if (installed[n].desc === candidate.desc) {
+                have = true
+                break
+            }
+        }
+        if (have)
+            continue
+        var pick = pickCombo(binds, candidate)
         if (pick.already)
-            already++
-        else if (pick.skipped)
+            continue
+        if (pick.skipped)
             skipped.push(pick)
         else
             toAdd.push(pick)
     }
-    var needed = already === 0
+    var needed = installed.length === 0
     var note = ""
-    if (!needed)
-        note = ""
-    else if (!toAdd.length && skipped.length)
+    if (installed.length) {
+        note = installed.map(function(it) { return compactKeys(it.keys) + " — " + it.desc }).join("; ")
+    } else if (!toAdd.length && skipped.length) {
         note = skipped.map(function(s) { return s.keys + " is " + (s.conflict || "taken") }).join("; ")
-    else if (toAdd.length) {
+    } else if (toAdd.length) {
         var bits = toAdd.map(function(p) { return p.chosen || p.keys })
-        note = "Add " + bits.join(", ")
+        note = "Set " + bits.join(", ")
         for (var s = 0; s < skipped.length; s++)
             note += " — skipped " + skipped[s].keys + " (" + skipped[s].conflict + ")"
     }
-    return { needed: needed, already: already, toAdd: toAdd, skipped: skipped, note: note }
+    var result = {
+        needed: needed,
+        already: installed.length,
+        installed: installed,
+        toAdd: toAdd,
+        skipped: skipped,
+        note: note,
+        canInstall: needed && toAdd.length > 0,
+        canRemove: installed.length > 0
+    }
+    result.chipLabel = chipLabel(result)
+    return result
+}
+
+function removeArgv(pluginDir, pluginId) {
+    var dir = String(pluginDir || ".")
+    if (dir.length > 1 && dir.charAt(dir.length - 1) === "/")
+        dir = dir.slice(0, dir.length - 1)
+    return ["python3", dir + "/compat/install-binds.py", "--remove", String(pluginId || PLUGIN_ID)]
 }
 
 function luaLine(item) {
