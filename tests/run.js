@@ -242,12 +242,13 @@ test("hypr: cloak batch vanishes every marked window onto special:cloak", () => 
   ])
   const cmds = Hypr.cloakCommands(marked, unmarked, { dimOthers: true, dimAlpha: 0.85 })
   const batch = Hypr.formatBatch(cmds)
-  assert.ok(batch.indexOf("movetoworkspacesilent special:cloak,address:0x64cea2525760") >= 0)
-  assert.ok(batch.indexOf("movetoworkspacesilent special:cloak,address:0x64cea2526000") >= 0)
+  assert.ok(batch.indexOf('hl.dsp.window.move({ workspace = "special:cloak", follow = false, window = "address:0x64cea2525760" })') >= 0)
+  assert.ok(batch.indexOf('hl.dsp.window.move({ workspace = "special:cloak", follow = false, window = "address:0x64cea2526000" })') >= 0)
+  assert.ok(batch.indexOf("movetoworkspacesilent") < 0)
   assert.ok(batch.indexOf("setprop address:0x64cea2525760 alpha 0") < 0)
   assert.ok(batch.indexOf("nofocus 1") < 0)
   assert.ok(batch.indexOf("setprop address:0x64cea2527000 alpha 0.85") >= 0)
-  assert.ok(batch.indexOf("special:cloak,address:0x64cea2527000") < 0)
+  assert.ok(batch.indexOf('window = "address:0x64cea2527000"') < 0)
 })
 
 test("hypr: tiled marked windows cannot restore losslessly", () => {
@@ -277,9 +278,12 @@ test("hypr: restore floating geometry after move", () => {
     ]
   })
   const batch = Hypr.formatBatch(cmds)
-  assert.ok(batch.indexOf("movetoworkspacesilent 2,address:0xabc") >= 0)
-  assert.ok(batch.indexOf("movewindowpixel exact 10 20,address:0xabc") >= 0)
-  assert.ok(batch.indexOf("resizewindowpixel exact 300 200,address:0xabc") >= 0)
+  assert.ok(batch.indexOf('hl.dsp.window.move({ workspace = "2", follow = false, window = "address:0xabc" })') >= 0)
+  assert.ok(batch.indexOf("hl.dsp.window.float({ action = \"enable\", window = \"address:0xabc\" })") >= 0)
+  assert.ok(batch.indexOf("hl.dsp.window.move({ x = 10, y = 20, relative = false, window = \"address:0xabc\" })") >= 0)
+  assert.ok(batch.indexOf("hl.dsp.window.resize({ x = 300, y = 200, relative = false, window = \"address:0xabc\" })") >= 0)
+  assert.ok(batch.indexOf("movewindowpixel") < 0)
+  assert.ok(batch.indexOf("resizewindowpixel") < 0)
 })
 
 test("hypr: restore moves every vanished window back", () => {
@@ -297,14 +301,40 @@ test("hypr: restore moves every vanished window back", () => {
     ]
   })
   const batch = Hypr.formatBatch(cmds)
-  assert.ok(batch.indexOf("movetoworkspacesilent 1,address:0xaaa") >= 0)
-  assert.ok(batch.indexOf("settiled address:0xaaa") >= 0)
+  assert.ok(batch.indexOf('hl.dsp.window.move({ workspace = "1", follow = false, window = "address:0xaaa" })') >= 0)
+  assert.ok(batch.indexOf("hl.dsp.window.float({ action = \"disable\", window = \"address:0xaaa\" })") >= 0)
+  assert.ok(batch.indexOf("settiled") < 0)
+})
+
+test("hypr: luaString and dispatchMoveArgv emit 0.56 tables", () => {
+  assert.strictEqual(Hypr.luaString('special:cloak'), '"special:cloak"')
+  assert.strictEqual(Hypr.luaString('a"b\\c'), '"a\\"b\\\\c"')
+  const argv = Hypr.dispatchMoveArgv("0xABC")
+  assert.strictEqual(argv[0], "hyprctl")
+  assert.strictEqual(argv[1], "dispatch")
+  assert.strictEqual(
+    argv[2],
+    'hl.dsp.window.move({ workspace = "special:cloak", follow = false, window = "address:0xabc" })'
+  )
+  assert.strictEqual(
+    Hypr.fullscreenStateCmd("0xabc", 2, 1),
+    'dispatch hl.dsp.window.fullscreen_state({ internal = 2, client = 1, action = "set", window = "address:0xabc" })'
+  )
+})
+
+test("binds: expectedArg is IpcHandler, not shell call", () => {
+  const id = "io.github.chris.share-cloak"
+  assert.strictEqual(Binds.expectedArg(id, "toggle"), "omarchy-shell io.github.chris.share-cloak toggle ''")
+  assert.strictEqual(Binds.expectedArgDouble(id, "markFocused"), 'omarchy-shell io.github.chris.share-cloak markFocused ""')
+  const argv = Binds.bindArgv("F9", "toggle")
+  assert.strictEqual(argv[3], "SUPER,F9,exec,omarchy-shell io.github.chris.share-cloak toggle ''")
+  assert.ok(argv[3].indexOf("shell call") < 0)
 })
 
 test("binds: conflict vs ours", () => {
   const binds = [
     { modmask: 64, key: "F9", dispatcher: "exec", arg: "kitty" },
-    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
+    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell io.github.chris.share-cloak markFocused ''" }
   ]
   const id = "io.github.chris.share-cloak"
   assert.ok(Binds.conflict(binds, 64, "F9", id, "toggle"))
@@ -316,13 +346,13 @@ test("binds: conflict vs ours", () => {
 test("binds: teardown unbinds only live plugin actions", () => {
   const owned = [{ key: "F9", method: "toggle" }, { key: "F10", method: "markFocused" }]
   const stillOurs = [
-    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak toggle ''" },
-    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell io.github.chris.share-cloak toggle ''" },
+    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell io.github.chris.share-cloak markFocused ''" }
   ]
   assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, stillOurs, "io.github.chris.share-cloak")), JSON.stringify(["F9", "F10"]))
   const userRebound = [
     { modmask: 64, key: "F9", dispatcher: "exec", arg: "kitty" },
-    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
+    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell io.github.chris.share-cloak markFocused ''" }
   ]
   assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, userRebound, "io.github.chris.share-cloak")), JSON.stringify(["F10"]))
   assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, [], "io.github.chris.share-cloak")), JSON.stringify([]))
@@ -331,9 +361,9 @@ test("binds: teardown unbinds only live plugin actions", () => {
 test("binds: mixed plugin+user combo is not unbound", () => {
   const owned = [{ key: "F9", method: "toggle" }, { key: "F10", method: "markFocused" }]
   const mixed = [
-    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak toggle ''" },
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell io.github.chris.share-cloak toggle ''" },
     { modmask: 64, key: "F9", dispatcher: "exec", arg: "kitty" },
-    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
+    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell io.github.chris.share-cloak markFocused ''" }
   ]
   const id = "io.github.chris.share-cloak"
   assert.ok(Binds.oursPresent(mixed, 64, "F9", id, "toggle"))
@@ -347,9 +377,9 @@ test("binds: same-plugin different method is not unbound", () => {
   const owned = [{ key: "F9", method: "toggle" }, { key: "F10", method: "markFocused" }]
   const id = "io.github.chris.share-cloak"
   const mixedMethod = [
-    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak toggle ''" },
-    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak status ''" },
-    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell io.github.chris.share-cloak toggle ''" },
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell io.github.chris.share-cloak status ''" },
+    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell io.github.chris.share-cloak markFocused ''" }
   ]
   assert.ok(Binds.oursPresent(mixedMethod, 64, "F9", id, "toggle"))
   assert.ok(Binds.isOurs(mixedMethod[1], id, "status"))
@@ -358,7 +388,7 @@ test("binds: same-plugin different method is not unbound", () => {
   assert.strictEqual(Binds.exclusivelyOurs(mixedMethod, 64, "F9", id, "toggle"), false)
   assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, mixedMethod, id)), JSON.stringify(["F10"]))
   const onlyStatus = [
-    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak status ''" }
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell io.github.chris.share-cloak status ''" }
   ]
   assert.strictEqual(JSON.stringify(Binds.keysToUnbind([{ key: "F9", method: "toggle" }], onlyStatus, id)), JSON.stringify([]))
   const argv = Binds.unbindOwnedArgv("/plugin", id, owned)

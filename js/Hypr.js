@@ -40,8 +40,24 @@ function quoteWorkspace(name, id) {
     return workspaceToken(name, id)
 }
 
+// Hyprland 0.55+ wraps `hyprctl dispatch <expr>` as hl.dispatch(<expr>).
+// Classic dispatcher names (`movetoworkspacesilent …`) are a Lua syntax
+// error. Emit hl.dsp.* tables instead. setprop is not dispatch — leave it.
+function luaString(value) {
+    return '"' + String(value)
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, "\\n")
+        .replace(/\r/g, "\\r") + '"'
+}
+
+function luaWindow(addr) {
+    return "window = " + luaString(addrSpec(addr))
+}
+
 function moveSilent(addr, workspace, workspaceId) {
-    return "dispatch movetoworkspacesilent " + workspaceToken(workspace, workspaceId) + "," + addrSpec(addr)
+    var ws = workspaceToken(workspace, workspaceId)
+    return "dispatch hl.dsp.window.move({ workspace = " + luaString(ws) + ", follow = false, " + luaWindow(addr) + " })"
 }
 
 function moveToCloak(addr) {
@@ -61,11 +77,11 @@ function dimaroundCmd(addr, on) {
 }
 
 function movePixel(addr, x, y) {
-    return "dispatch movewindowpixel exact " + Number(x) + " " + Number(y) + "," + addrSpec(addr)
+    return "dispatch hl.dsp.window.move({ x = " + Number(x) + ", y = " + Number(y) + ", relative = false, " + luaWindow(addr) + " })"
 }
 
 function resizePixel(addr, w, h) {
-    return "dispatch resizewindowpixel exact " + Number(w) + " " + Number(h) + "," + addrSpec(addr)
+    return "dispatch hl.dsp.window.resize({ x = " + Number(w) + ", y = " + Number(h) + ", relative = false, " + luaWindow(addr) + " })"
 }
 
 function formatBatch(commands) {
@@ -150,19 +166,19 @@ function cloakCommands(marked, unmarked, options) {
 }
 
 function dispatchMoveArgv(addr) {
-    return ["hyprctl", "dispatch", "movetoworkspacesilent", CLOAK_WORKSPACE + "," + addrSpec(addr)]
+    return ["hyprctl", "dispatch", "hl.dsp.window.move({ workspace = " + luaString(CLOAK_WORKSPACE) + ", follow = false, " + luaWindow(addr) + " })"]
 }
 
 function settiledCmd(addr) {
-    return "dispatch settiled " + addrSpec(addr)
+    return "dispatch hl.dsp.window.float({ action = \"disable\", " + luaWindow(addr) + " })"
 }
 
 function setfloatingCmd(addr) {
-    return "dispatch setfloating " + addrSpec(addr)
+    return "dispatch hl.dsp.window.float({ action = \"enable\", " + luaWindow(addr) + " })"
 }
 
 function fullscreenStateCmd(addr, internal, client) {
-    return "dispatch fullscreenstate " + Number(internal || 0) + " " + Number(client || 0) + "," + addrSpec(addr)
+    return "dispatch hl.dsp.window.fullscreen_state({ internal = " + Number(internal || 0) + ", client = " + Number(client || 0) + ", action = \"set\", " + luaWindow(addr) + " })"
 }
 
 function geometryCmds(step) {

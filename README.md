@@ -47,14 +47,16 @@ omarchy-shell shell rescanPlugins
 | Bar chip, left click | Same as Super+F9 |
 | Bar chip, right click | Open the mark list |
 
-On plugin load the service reads `hyprctl -j binds`. Super+F9 / F10 are installed with `hyprctl keyword bind` only when that combo is free (or already the exact owned command). Teardown launches a detached helper (`compat/unbind-owned.sh`) that re-reads live binds after the service is gone and unbinds a combo only when **every** live binding is this plugin's **expected method** with an empty argument (`toggle ''` / `markFocused ''`). A same-combo `status ''` or a user bind is left alone. If a combo is taken or `hyprctl` fails, the bar chip is the fallback and the chip tooltip says so. They call:
+On plugin load the service reads `hyprctl -j binds`. Super+F9 / F10 are installed with `hyprctl keyword bind` only when that combo is free (or already the exact owned command). Teardown launches a detached helper (`compat/unbind-owned.sh`) that re-reads live binds after the service is gone and unbinds a combo only when **every** live binding is this plugin's **expected method** with an empty argument (`toggle ''` / `markFocused ''`). A same-combo `status ''` or a user bind is left alone. If a combo is taken or `hyprctl` fails, the bar chip is the fallback and the chip tooltip says so.
+
+Cloak toggle/mark hit the plugin's `IpcHandler` (the service). `omarchy-shell shell call … toggle` would invoke the overlay UI, not cloak. The handler requires a third argument (empty string when unused):
 
 ```
-omarchy-shell shell call io.github.chris.share-cloak toggle ''
-omarchy-shell shell call io.github.chris.share-cloak markFocused ''
+omarchy-shell io.github.chris.share-cloak toggle ''
+omarchy-shell io.github.chris.share-cloak markFocused ''
 ```
 
-`call` always takes `<id> <method> <arg>`. No-argument methods pass an empty argument. If a bind collides with one you already have, the bar chip still works; you can `hyprctl keyword unbind SUPER,F9`.
+If a bind collides with one you already have, the bar chip still works; you can `hyprctl keyword unbind SUPER,F9`.
 
 ### What cloak does
 
