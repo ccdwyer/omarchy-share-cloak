@@ -51,7 +51,7 @@ omarchy-shell shell rescanPlugins
 | Bar chip, left click | Same as Super+F9 |
 | Bar chip, right click | Open the mark list |
 
-On plugin load the service installs these binds with `hyprctl keyword bind` (runtime, not a `hyprland.conf` edit). Super+F9 / Super+F10 work after `omarchy plugin add … --enable` without a further config change. They call:
+On plugin load the service reads `hyprctl -j binds`. Super+F9 / F10 are installed with `hyprctl keyword bind` only when that combo is free (or already ours). Owned binds are unbind on `Component.onDestruction`. If a combo is taken or `hyprctl` fails, the bar chip is the fallback and the chip tooltip says so. They call:
 
 ```
 omarchy-shell shell call io.github.chris.share-cloak toggle ''
@@ -63,8 +63,8 @@ omarchy-shell shell call io.github.chris.share-cloak markFocused ''
 ### What cloak does
 
 1. Snapshot windows, workspaces, floating geometry, special workspaces, and notification mode to `~/.local/state/share-cloak/session.json`. Every mutation is recorded with **ownership**.
-2. Move every *marked* window to `special:cloak` (hidden, unshareable). **This is the one protection claim.**
-3. Catch new windows spawned by marked apps (dialogs, splashes) and send them to `special:cloak` too.
+2. **Floating** marked windows move to `special:cloak`. **Tiled** marked windows stay in the dwindle/master tree and are hidden in place (`setprop alpha 0` + `nofocus`) so sibling geometry is unchanged. Cover cards draw over the still-present tiles. **Content is not visible; the layout is not dismantled.**
+3. Catch new windows from marked apps the same way: floating → `special:cloak`, tiled → hide in place.
 4. Optionally dim unmarked windows via per-address `setprop alpha` (no `windowrulev2` accumulation).
 5. Cover the wallpaper with an owned below-windows layer plate (theme background + a slight gradient). Restore = destroy the surface.
 6. Pause notifications with mako only when a **configured suppression mode** exists (`[mode=…]` with `invisible=1` or `inhibit=1`). Guessed names are never added. After `-a`, Cloak re-reads `makoctl mode` before claiming notifications are managed. Uncloak removes only a mode this plugin added.
@@ -81,7 +81,7 @@ Bar chip states: **cloak** (idle) / **CLOAK** (armed, watching for a share) / **
 - **One-frame flash on unsafe workspace switches.** While cloaked, a workspace event whose target is not in the safe list (the workspace(s) visible at cloak time) covers the output immediately. Safe-list switches never flicker. A one-frame flash of the unsafe workspace is possible; the zero-frame pattern is: share one output, keep unsafe workspaces on the other.
 - **Notifications are mako-only.** No dunst path. Only a mako config section that actually suppresses notifications is used. If none is configured, or add+re-read fails, the chip says `notifications: unmanaged`. A suppression mode the user already had on is left alone.
 - **Helper binary is optional.** `bin/cloak-probe` is built by `build.sh`. If it is missing, QML falls back to `compat/cloak-probe.sh` and, for share corroboration, to an in-process `pw-dump` JSON parse. Auto-cloak's primary trigger is Hyprland's `screencast` socket2 event, not the helper.
-- **Runtime keybinds.** Super+F9 / F10 are installed with `hyprctl keyword bind` when the service starts. The plugin does not edit `hyprland.conf`.
+- **Runtime keybinds.** Super+F9 / F10 are installed only if free, tracked as owned, and removed on plugin teardown. Conflicts leave the bar chip as the control. No `hyprland.conf` edits.
 - **ON AIR frame tracks the layer-shell output the overlay landed on** (typically the focused / primary screen). The `screencast` event does not name which monitor is shared.
 - **Crash mid-cloak** leaves windows on `special:cloak`. On the next shell start, Share Cloak offers one-key restore (Super+F9) rather than mutating the layout unattended.
 
@@ -105,7 +105,7 @@ Marks (class + title regex) persist in `~/.local/state/share-cloak/marks.json`. 
 node tests/run.js
 sh tests/probe-fallback.test.sh
 sh scripts/omarchy-plugin-validate.sh
-sh tests/live-roundtrip.sh          # 200-cycle hyprctl round-trip when Hyprland is running
+sh tests/live-roundtrip.sh          # Omarchy only: full-set hyprctl round-trip (not run in GitHub CI)
 # optional, needs cargo:
 cargo test --manifest-path src/cloak-probe/Cargo.toml
 ```

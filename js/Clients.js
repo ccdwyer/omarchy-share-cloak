@@ -180,13 +180,41 @@ function markedStillVisible(marked, liveClients) {
     var failed = []
     var list = marked || []
     for (var i = 0; i < list.length; i++) {
-        var addr = normalizeAddress(list[i] && (list[i].address || list[i]))
+        var item = list[i]
+        if (item && item.floating === false)
+            continue
+        var addr = normalizeAddress(item && (item.address || item))
         if (!addr)
             continue
         var now = live[addr]
         if (!now)
             continue
         if (!isOnCloak(now))
+            failed.push(now)
+    }
+    return failed
+}
+
+function tiledLayoutChanged(original, liveClients) {
+    var live = indexByAddress(liveClients)
+    var failed = []
+    var list = original || []
+    for (var i = 0; i < list.length; i++) {
+        var prev = list[i]
+        if (!prev || prev.floating)
+            continue
+        var addr = normalizeAddress(prev.address)
+        var now = live[addr]
+        if (!now)
+            continue
+        if (isOnCloak(now)) {
+            failed.push(now)
+            continue
+        }
+        var sameWs = workspaceName(now) === (prev.workspaceName || workspaceName(prev))
+        var sameAt = now.at && prev.at && Number(now.at[0]) === Number(prev.at[0]) && Number(now.at[1]) === Number(prev.at[1])
+        var sameSize = now.size && prev.size && Number(now.size[0]) === Number(prev.size[0]) && Number(now.size[1]) === Number(prev.size[1])
+        if (!sameWs || !sameAt || !sameSize)
             failed.push(now)
     }
     return failed

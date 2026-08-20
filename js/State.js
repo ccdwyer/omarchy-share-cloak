@@ -31,6 +31,8 @@ var transactionBusy = false
 var probeIsBinary = false
 var clients = []
 var toast = ""
+var bindStatus = ""
+var bindNote = ""
 
 function reset() {
     revision = 0
@@ -55,6 +57,8 @@ function reset() {
     probeIsBinary = false
     clients = []
     toast = ""
+    bindStatus = ""
+    bindNote = ""
 }
 
 function bump() {
@@ -97,7 +101,9 @@ function snapshot() {
         transactionBusy: transactionBusy,
         probeIsBinary: probeIsBinary,
         clients: clients,
-        toast: toast
+        toast: toast,
+        bindStatus: bindStatus,
+        bindNote: bindNote
     }
 }
 
@@ -238,6 +244,12 @@ function setToast(msg) {
 function setError(msg) {
     lastError = msg || ""
     lastStatus = "error"
+    bump()
+}
+
+function setBindStatus(status, note) {
+    bindStatus = status || ""
+    bindNote = note || ""
     bump()
 }
 

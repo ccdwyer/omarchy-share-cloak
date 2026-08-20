@@ -94,10 +94,50 @@ function moveCommands(marked) {
     var cmds = []
     for (var i = 0; i < (marked || []).length; i++) {
         var m = marked[i]
-        var addr = m.address || m
+        var addr = m && (m.address || m)
         if (addr)
             cmds.push(moveToCloak(addr))
     }
+    return cmds
+}
+
+function floatingMarked(marked) {
+    var out = []
+    for (var i = 0; i < (marked || []).length; i++) {
+        if (marked[i] && marked[i].floating)
+            out.push(marked[i])
+    }
+    return out
+}
+
+function tiledMarked(marked) {
+    var out = []
+    for (var i = 0; i < (marked || []).length; i++) {
+        if (marked[i] && !marked[i].floating)
+            out.push(marked[i])
+    }
+    return out
+}
+
+function hideInPlaceCommands(tiled) {
+    var cmds = []
+    for (var i = 0; i < (tiled || []).length; i++) {
+        var t = tiled[i]
+        var addr = t && (t.address || t)
+        if (!addr)
+            continue
+        cmds.push(alphaCmd(addr, 0))
+        cmds.push(setprop(addr, "nofocus", 1))
+    }
+    return cmds
+}
+
+function revealInPlaceCommands(step) {
+    var cmds = []
+    if (!step || !step.address)
+        return cmds
+    cmds.push(setprop(step.address, "nofocus", 0))
+    cmds.push(alphaCmd(step.address, step.from === undefined ? 1 : step.from))
     return cmds
 }
 
@@ -121,7 +161,8 @@ function dimCommands(unmarked, options) {
 
 function cloakCommands(marked, unmarked, options) {
     var opts = options || {}
-    var cmds = moveCommands(marked)
+    var cmds = hideInPlaceCommands(tiledMarked(marked))
+    cmds = cmds.concat(moveCommands(floatingMarked(marked)))
     if (opts.dimOthers !== false)
         cmds = cmds.concat(dimCommands(unmarked, opts))
     return cmds
@@ -163,7 +204,7 @@ function geometryCmds(step) {
 function restoreCommands(plan) {
     var steps = (plan && plan.steps) || plan || []
     var props = []
-    var tiled = []
+    var hides = []
     var floating = []
     var i
     for (i = 0; i < steps.length; i++) {
@@ -174,43 +215,30 @@ function restoreCommands(plan) {
             props.push(alphaCmd(step.address, step.from === undefined ? 1 : step.from))
         else if (step.kind === "dimaround" && step.address)
             props.push(dimaroundCmd(step.address, !!step.from))
-        else if (step.kind === "move" || step.kind === "catch-all-move") {
-            if (step.floating)
-                floating.push(step)
-            else
-                tiled.push(step)
+        else if (step.kind === "hide-in-place")
+            hides.push(step)
+        else if ((step.kind === "move" || step.kind === "catch-all-move") && step.floating)
+            floating.push(step)
+        else if ((step.kind === "move" || step.kind === "catch-all-move") && !step.floating)
+            hides.push(step)
+    }
+    var cmds = props.slice()
+    for (i = 0; i < hides.length; i++) {
+        var h = hides[i]
+        if (h.kind === "hide-in-place") {
+            var rev = revealInPlaceCommands(h)
+            for (var r = 0; r < rev.length; r++)
+                cmds.push(rev[r])
         }
     }
-    tiled.sort(function(a, b) {
-        var ao = Number(a.tileOrder)
-        var bo = Number(b.tileOrder)
-        if (isNaN(ao))
-            ao = 0
-        if (isNaN(bo))
-            bo = 0
-        if (ao !== bo)
-            return ao - bo
-        return String(a.address || "") < String(b.address || "") ? -1 : 1
-    })
-    var cmds = props.slice()
-    function emitMove(step) {
-        if (!step.address)
-            return
-        cmds.push(moveSilent(step.address, step.fromWorkspace || step.workspace || "1", step.fromWorkspaceId))
-        var geom = geometryCmds(step)
+    for (i = 0; i < floating.length; i++) {
+        var stepF = floating[i]
+        if (!stepF.address)
+            continue
+        cmds.push(moveSilent(stepF.address, stepF.fromWorkspace || stepF.workspace || "1", stepF.fromWorkspaceId))
+        var geom = geometryCmds(stepF)
         for (var g = 0; g < geom.length; g++)
             cmds.push(geom[g])
-    }
-    for (i = 0; i < tiled.length; i++)
-        emitMove(tiled[i])
-    for (i = 0; i < floating.length; i++)
-        emitMove(floating[i])
-    for (i = 0; i < tiled.length; i++) {
-        var settle = geometryCmds(tiled[i])
-        for (var s = 0; s < settle.length; s++) {
-            if (settle[s].indexOf("movewindowpixel") >= 0 || settle[s].indexOf("resizewindowpixel") >= 0)
-                cmds.push(settle[s])
-        }
     }
     return cmds
 }

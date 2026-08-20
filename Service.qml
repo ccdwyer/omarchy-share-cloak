@@ -11,6 +11,7 @@ import "js/Session.js" as Session
 import "js/PwDump.js" as PwDump
 import "js/Hypr.js" as Hypr
 import "js/Mako.js" as Mako
+import "js/Binds.js" as Binds
 
 Item {
   id: root
@@ -67,6 +68,9 @@ Item {
   property var pendingUnmarked: []
   property var pendingMako: null
   property var pendingGetprops: []
+  property var pendingTiled: []
+  property var pendingFloating: []
+  property var ownedBinds: []
   property string pendingCloakReason: ""
   property bool hydrating: true
   property int uiRevision: 0
@@ -219,13 +223,12 @@ Item {
     if (!Marks.isMarked(fake, Config.marks) && !Marks.classIsMarked(fake["class"], Config.marks))
       return
     var addr = Events.normalizeAddress(fields.address)
-    root.cloakAddressChecked(addr, function(ok) {
+    root.cloakClientByAddress(addr, fields, function(ok) {
       if (!ok) {
         State.setToast("catch-all failed — a marked window is still visible")
         root.publish()
         return
       }
-      Session.recordCatchAll(root.session, fields)
       persistSession()
       if (Config.coverCards)
         State.setCovers(Session.coverCards(root.session, State.currentWorkspace))
@@ -359,9 +362,13 @@ Item {
       else
         unmarked.push(clients[i])
     }
-    Session.recordMoves(session, marked, Clients.tileOrderMap(clients))
+    var floating = Hypr.floatingMarked(marked)
+    var tiled = Hypr.tiledMarked(marked)
+    Session.recordMoves(session, floating)
     root.session = session
     root.pendingMarked = marked.slice()
+    root.pendingFloating = floating.slice()
+    root.pendingTiled = tiled.slice()
     root.pendingUnmarked = unmarked.slice()
 
     State.setNotification(mako.alreadyActive ? "mako" : (mako.ok ? "mako" : "unmanaged"), mako.alreadyActive ? "" : (mako.ok ? "" : mako.note))
@@ -373,11 +380,7 @@ Item {
     persistSession()
     root.summonOverlay(root.overlayPayload())
 
-    var moveCmds = Hypr.moveCommands(marked)
-    root.pendingBatches = Hypr.chunk(moveCmds, 20)
-    root.flushBatches(function(moveOk) {
-      root.verifyAndFinishCloak(moveOk)
-    })
+    root.snapshotTiledThenCloak(tiled, floating)
   }
 
   function splitRetry(commands, done) {
@@ -418,6 +421,23 @@ Item {
     })
   }
 
+  function snapshotTiledThenCloak(tiled, floating) {
+    var jobs = []
+    var i
+    for (i = 0; i < (tiled || []).length; i++)
+      jobs.push({ address: tiled[i].address, kind: "alpha" })
+    root.pendingGetprops = jobs
+    root.fillGetprops((tiled || []).slice(), function(enriched) {
+      Session.recordHideInPlace(root.session, enriched)
+      persistSession()
+      var cmds = Hypr.hideInPlaceCommands(enriched).concat(Hypr.moveCommands(floating))
+      root.pendingBatches = Hypr.chunk(cmds, 20)
+      root.flushBatches(function(ok) {
+        root.verifyAndFinishCloak(ok)
+      })
+    })
+  }
+
   function verifyAndFinishCloak(moveOk) {
     enqueueWork(["hyprctl", "-j", "clients"], function(text, code) {
       var parsed = Clients.parseClientsResult(text, code)
@@ -428,9 +448,11 @@ Item {
       var live = parsed.clients
       root.lastClients = live
       State.setClients(live)
-      var leaked = Clients.markedStillVisible(root.pendingMarked, live)
-      if (!moveOk || leaked.length) {
-        root.rollbackCloak(live, leaked.length ? "marked windows still visible" : "cloak move batch failed")
+      var leaked = Clients.markedStillVisible(root.pendingFloating, live)
+      var displaced = Clients.tiledLayoutChanged(root.pendingTiled, live)
+      if (!moveOk || leaked.length || displaced.length) {
+        var why = leaked.length ? "marked floating windows still visible" : (displaced.length ? "tiled layout changed" : "cloak batch failed")
+        root.rollbackCloak(live, why)
         return
       }
       if (root.session)
@@ -744,6 +766,69 @@ Item {
     return root.beginCloak("manual")
   }
 
+  function cloakClientByAddress(addr, fields, done) {
+    enqueueWork(["hyprctl", "-j", "clients"], function(text, code) {
+      var parsed = Clients.parseClientsResult(text, code)
+      if (!parsed.ok) {
+        if (done)
+          done(false)
+        return
+      }
+      var found = null
+      for (var i = 0; i < parsed.clients.length; i++) {
+        if (parsed.clients[i].address === addr) {
+          found = parsed.clients[i]
+          break
+        }
+      }
+      if (!found) {
+        if (done)
+          done(false)
+        return
+      }
+      root.cloakOneClient(found, fields, done)
+    })
+  }
+
+  function cloakOneClient(client, fields, done) {
+    if (client.floating) {
+      root.cloakAddressChecked(client.address, function(ok) {
+        if (ok) {
+          if (fields)
+            Session.recordCatchAll(root.session, fields)
+          else if (!Session.findOwnedMove(root.session, client.address))
+            Session.recordMoves(root.session, [client])
+        }
+        if (done)
+          done(ok)
+      })
+      return
+    }
+    enqueueWork(Hypr.getpropArgv(client.address, "alpha"), function(text, code) {
+      if (Number(code) === 0) {
+        var v = Hypr.parseGetprop(text)
+        if (v !== null)
+          client.alpha = v
+      }
+      enqueueWork(Hypr.batchArgv(Hypr.formatBatch(Hypr.hideInPlaceCommands([client]))), function(t2, c2) {
+        if (Number(c2) !== 0) {
+          if (done)
+            done(false)
+          return
+        }
+        enqueueWork(["hyprctl", "-j", "clients"], function(t3, c3) {
+          var parsed = Clients.parseClientsResult(t3, c3)
+          var displaced = parsed.ok ? Clients.tiledLayoutChanged([client], parsed.clients) : [client]
+          var ok = parsed.ok && displaced.length === 0
+          if (ok && !Session.findOwnedMove(root.session, client.address))
+            Session.recordHideInPlace(root.session, [client])
+          if (done)
+            done(ok)
+        })
+      })
+    })
+  }
+
   function cloakAddressChecked(addr, done) {
     if (!addr) {
       if (done)
@@ -827,14 +912,11 @@ Item {
     if (!pending.length)
       return
     var c = pending.shift()
-    root.cloakAddressChecked(c.address, function(ok) {
-      if (ok) {
-        if (!Session.findOwnedMove(root.session, c.address))
-          Session.recordMoves(root.session, [c])
+    root.cloakOneClient(c, null, function(ok) {
+      if (ok)
         persistSession()
-      } else {
+      else
         State.setToast("failed to hide " + (c["class"] || "window"))
-      }
       root.publish()
       root.cloakNewlyMarkedNext(pending)
     })
@@ -877,20 +959,19 @@ Item {
       return
     var stale = !root.lastEventAt || (Date.now() - Number(root.lastEventAt) > 4000)
     var allowPw = !root.screencastEventSeen || stale
+    if (!allowPw)
+      return
     if (result.screencasting) {
       var kind = result.windowShare ? "window" : "monitor"
       State.setShare(true, kind, "pw-dump")
       root.publish()
-      if (Config.autoCloak && !State.userOverride && !State.isCloaked() && allowPw)
+      if (Config.autoCloak && !State.userOverride && !State.isCloaked())
         root.beginCloak("pw-dump")
-    } else if (allowPw && State.shareActive) {
-      var fromPw = State.shareSource === "pw-dump" || stale
-      if (fromPw) {
-        State.setShare(false, "none", "pw-dump")
-        root.publish()
-        if (State.isCloaked() && root.session && root.session.reason !== "manual")
-          root.beginUncloak("pw-dump-end")
-      }
+    } else if (State.shareActive && (State.shareSource === "pw-dump" || stale)) {
+      State.setShare(false, "none", "pw-dump")
+      root.publish()
+      if (State.isCloaked() && root.session && root.session.reason !== "manual")
+        root.beginUncloak("pw-dump-end")
     }
   }
 
@@ -915,8 +996,64 @@ Item {
   }
 
   function installBinds() {
-    enqueueWork(["hyprctl", "keyword", "bind", "SUPER,F9,exec,omarchy-shell shell call io.github.chris.share-cloak toggle ''"], null)
-    enqueueWork(["hyprctl", "keyword", "bind", "SUPER,F10,exec,omarchy-shell shell call io.github.chris.share-cloak markFocused ''"], null)
+    root.ownedBinds = []
+    enqueueWork(["hyprctl", "-j", "binds"], function(text, code) {
+      if (Number(code) !== 0) {
+        State.setBindStatus("failed", "could not read keybinds — use the bar chip")
+        root.publish()
+        return
+      }
+      root.installOneBind("F9", "toggle", text, function() {
+        enqueueWork(["hyprctl", "-j", "binds"], function(t2, c2) {
+          root.installOneBind("F10", "markFocused", Number(c2) === 0 ? t2 : text, function() {
+            if (!(root.ownedBinds && root.ownedBinds.length))
+              State.setBindStatus(State.bindStatus || "failed", State.bindNote || "Super+F9/F10 not installed — use the bar chip")
+            root.publish()
+          })
+        })
+      })
+    })
+  }
+
+  function installOneBind(key, method, bindsText, done) {
+    var binds = Binds.parseBinds(bindsText)
+    if (Binds.conflict(binds, Binds.SUPER, key, root.pluginId)) {
+      State.setBindStatus("conflict", "Super+" + key + " is already bound — use the bar chip")
+      if (done)
+        done()
+      return
+    }
+    if (Binds.oursPresent(binds, Binds.SUPER, key, root.pluginId)) {
+      root.ownedBinds = (root.ownedBinds || []).concat([{ key: key, method: method }])
+      if (done)
+        done()
+      return
+    }
+    enqueueWork(Binds.bindArgv(key, method), function(text, code) {
+      if (Number(code) !== 0) {
+        State.setBindStatus("failed", "could not bind Super+" + key + " — use the bar chip")
+        if (done)
+          done()
+        return
+      }
+      enqueueWork(["hyprctl", "-j", "binds"], function(t2, c2) {
+        var now = Number(c2) === 0 ? Binds.parseBinds(t2) : []
+        if (Binds.oursPresent(now, Binds.SUPER, key, root.pluginId)) {
+          root.ownedBinds = (root.ownedBinds || []).concat([{ key: key, method: method }])
+        } else {
+          State.setBindStatus("failed", "Super+" + key + " bind did not stick — use the bar chip")
+        }
+        if (done)
+          done()
+      })
+    })
+  }
+
+  function teardownBinds() {
+    var list = (root.ownedBinds || []).slice()
+    root.ownedBinds = []
+    for (var i = 0; i < list.length; i++)
+      enqueueWork(Binds.unbindArgv(list[i].key), null)
   }
 
   function ping() { return "ok" }
@@ -1164,4 +1301,6 @@ Item {
     root.installBinds()
     root.publish()
   }
+
+  Component.onDestruction: root.teardownBinds()
 }

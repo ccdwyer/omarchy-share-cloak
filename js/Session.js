@@ -96,48 +96,12 @@ function addMutation(session, mut) {
     return row
 }
 
-function recordMoves(session, marked, tileRanks) {
+function recordMoves(session, marked) {
     var list = marked || []
-    var ranks = tileRanks || {}
-    var i
-    if (!Object.keys(ranks).length) {
-        var byWs = {}
-        for (i = 0; i < list.length; i++) {
-            var src = list[i]
-            if (!src || src.floating)
-                continue
-            var ws = String(src.workspaceName || (src.workspace && src.workspace.name) || src.workspaceId || "")
-            if (!byWs[ws])
-                byWs[ws] = []
-            byWs[ws].push(src)
-        }
-        for (var wsName in byWs) {
-            if (!byWs.hasOwnProperty(wsName))
-                continue
-            var group = byWs[wsName]
-            group.sort(function(a, b) {
-                var ay = a.at ? Number(a.at[1]) : 0
-                var byv = b.at ? Number(b.at[1]) : 0
-                if (ay !== byv)
-                    return ay - byv
-                var ax = a.at ? Number(a.at[0]) : 0
-                var bx = b.at ? Number(b.at[0]) : 0
-                return ax - bx
-            })
-            for (i = 0; i < group.length; i++) {
-                var addr = String(group[i].address || "").toLowerCase()
-                ranks[addr] = i
-            }
-        }
-    }
-    for (i = 0; i < list.length; i++) {
+    for (var i = 0; i < list.length; i++) {
         var c = captureClient(list[i])
         if (!c || !c.address)
             continue
-        var key = String(c.address).toLowerCase()
-        var order = list[i].tileOrder
-        if (order === undefined)
-            order = ranks[key]
         addMutation(session, {
             kind: "move",
             owned: true,
@@ -149,11 +113,36 @@ function recordMoves(session, marked, tileRanks) {
             toWorkspace: "special:cloak",
             at: c.at,
             size: c.size,
-            floating: c.floating,
+            floating: true,
             fullscreen: c.fullscreen,
             fullscreenClient: c.fullscreenClient,
-            monitor: c.monitor,
-            tileOrder: order !== undefined ? Number(order) : 0
+            monitor: c.monitor
+        })
+    }
+}
+
+function recordHideInPlace(session, tiled) {
+    var list = tiled || []
+    for (var i = 0; i < list.length; i++) {
+        var src = list[i]
+        var c = captureClient(src)
+        if (!c || !c.address)
+            continue
+        var from = src.alpha !== undefined && src.alpha !== null && !isNaN(Number(src.alpha)) ? Number(src.alpha) : undefined
+        addMutation(session, {
+            kind: "hide-in-place",
+            owned: true,
+            address: c.address,
+            class: c.class,
+            title: c.title,
+            fromWorkspace: c.workspaceName || "1",
+            fromWorkspaceId: c.workspaceId,
+            at: c.at,
+            size: c.size,
+            floating: false,
+            from: from,
+            to: 0,
+            captured: from !== undefined
         })
     }
 }
@@ -268,7 +257,7 @@ function findOwnedMove(session, address) {
         var m = list[i]
         if (!m || !m.owned)
             continue
-        if ((m.kind === "move" || m.kind === "catch-all-move") && m.address === address)
+        if ((m.kind === "move" || m.kind === "catch-all-move" || m.kind === "hide-in-place") && m.address === address)
             return m
     }
     return null
@@ -328,6 +317,14 @@ function reconcileWithLive(session, liveClients) {
             else
                 name = String(live.workspace || "")
             if (name !== "special:cloak" && name !== "cloak")
+                m.owned = false
+            continue
+        }
+        if (m.kind === "hide-in-place") {
+            if (!live)
+                continue
+            var ha = liveAlpha(live)
+            if (ha !== null && !approxEqual(ha, m.to))
                 m.owned = false
             continue
         }
@@ -440,7 +437,7 @@ function coverCards(session, currentSafeName) {
         var m = muts[i]
         if (!m || !m.owned)
             continue
-        if (m.kind !== "move" && m.kind !== "catch-all-move")
+        if (m.kind !== "move" && m.kind !== "catch-all-move" && m.kind !== "hide-in-place")
             continue
         if (currentSafeName && m.fromWorkspace && String(m.fromWorkspace) !== String(currentSafeName))
             continue

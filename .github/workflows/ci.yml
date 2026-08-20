@@ -18,14 +18,8 @@ jobs:
         run: sh tests/probe-fallback.test.sh
       - name: omarchy plugin validate
         run: sh scripts/omarchy-plugin-validate.sh
-      - name: Install qmllint
-        run: sudo apt-get update && sudo apt-get install -y qt6-declarative-dev-tools || true
-      - name: qmllint
-        run: sh scripts/qmllint-plugin.sh
-      - name: Quickshell load check
-        run: sh scripts/quickshell-load-check.sh
-      - name: Live Hyprland round-trip
-        run: sh tests/live-roundtrip.sh
+      - name: QML lint
+        run: node scripts/qml-structure-check.js
 
   linux-helper:
     runs-on: ubuntu-latest

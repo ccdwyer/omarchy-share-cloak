@@ -43,16 +43,6 @@ function clientsNow() {
   return Clients.parseClientsResult(res.text, 0)
 }
 
-function activeAddr() {
-  const res = hyprctl(["-j", "activewindow"])
-  try {
-    const w = JSON.parse(res.text || "null")
-    return w && w.address ? String(w.address).toLowerCase() : ""
-  } catch (e) {
-    return ""
-  }
-}
-
 function applyBatches(batches) {
   for (let i = 0; i < batches.length; i++) {
     const res = hyprctl(["--batch", batches[i]])
@@ -61,49 +51,54 @@ function applyBatches(batches) {
   }
 }
 
+function getAlpha(addr) {
+  const res = hyprctl(["getprop", "address:" + addr, "alpha"])
+  return Number(res.code) === 0 ? Hypr.parseGetprop(res.text) : 1
+}
+
 const parsed = clientsNow()
 if (!parsed.ok)
   throw new Error("could not parse clients")
 
-const active = activeAddr()
-const tiled = parsed.clients.filter((c) => !c.floating && c.address !== active && !Clients.isOnCloak(c))
+const tiled = parsed.clients.filter((c) => !c.floating && !Clients.isOnCloak(c))
 if (tiled.length < 1) {
-  console.log("live-roundtrip: SKIP (need at least one non-active tiled window)")
+  console.log("live-roundtrip: SKIP (need at least one tiled window)")
   process.exit(0)
 }
 
-const target = tiled.slice(0, Math.min(3, tiled.length))
-console.log("live-roundtrip: cycling " + target.length + " tiled window(s) x " + CYCLES)
+const target = tiled.slice()
+console.log("live-roundtrip: hide-in-place " + target.length + " tiled window(s) x " + CYCLES + " (full client set)")
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const before = clientsNow()
   if (!before.ok)
     throw new Error("cycle " + cycle + " clients-before failed")
   const session = Session.create({ clients: before.clients })
-  Session.recordMoves(session, target, Clients.tileOrderMap(before.clients))
-  applyBatches(Hypr.chunk(Hypr.moveCommands(target), 20))
+  const marked = target.map((t) => {
+    const live = before.clients.filter((c) => c.address === t.address)[0]
+    const copy = JSON.parse(JSON.stringify(live || t))
+    copy.alpha = getAlpha(copy.address)
+    return copy
+  }).filter((c) => c && c.address)
+  Session.recordHideInPlace(session, marked)
+  applyBatches(Hypr.chunk(Hypr.hideInPlaceCommands(marked), 20))
   const cloaked = clientsNow()
   if (!cloaked.ok)
     throw new Error("cycle " + cycle + " clients-cloaked failed")
-  const leaked = Clients.markedStillVisible(target, cloaked.clients)
-  if (leaked.length)
-    throw new Error("cycle " + cycle + " leak: " + leaked.map((c) => c.address).join(","))
+  const displaced = Clients.tiledLayoutChanged(marked, cloaked.clients)
+  if (displaced.length)
+    throw new Error("cycle " + cycle + " tiled layout changed while hidden")
+  const mid = Clients.roundTripDiff(JSON.stringify(before.clients), JSON.stringify(cloaked.clients))
+  if (mid.length)
+    throw new Error("cycle " + cycle + " full-set diff while cloaked " + JSON.stringify(mid))
   const plan = Session.restorePlan(session, cloaked.clients)
   applyBatches(Hypr.chunk(Hypr.restoreCommands(plan), 20))
   const after = clientsNow()
   if (!after.ok)
     throw new Error("cycle " + cycle + " clients-after failed")
-  const stuck = Session.stillOnCloak(session, after.clients)
-  if (stuck.length)
-    throw new Error("cycle " + cycle + " still on cloak")
-  const diffs = Clients.roundTripDiff(
-    JSON.stringify(before.clients.filter((c) => target.some((t) => t.address === c.address))),
-    JSON.stringify(after.clients.filter((c) => target.some((t) => t.address === c.address)))
-  )
-  const geom = diffs.filter((d) => d.kind === "changed")
-  if (geom.length) {
-    throw new Error("cycle " + cycle + " layout diff " + JSON.stringify(geom))
-  }
+  const diffs = Clients.roundTripDiff(JSON.stringify(before.clients), JSON.stringify(after.clients))
+  if (diffs.length)
+    throw new Error("cycle " + cycle + " full-set restore diff " + JSON.stringify(diffs))
 }
 
-console.log("live-roundtrip: ok " + CYCLES + " cycles")
+console.log("live-roundtrip: ok " + CYCLES + " cycles, full client set")

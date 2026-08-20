@@ -72,13 +72,15 @@ BarWidget {
   }
 
   function tooltip() {
+    var snap = State.snapshot()
+    var extra = snap.bindNote ? (" " + snap.bindNote) : ""
     if (root.barState === "onair")
-      return "Share Cloak — ON AIR. Left: uncloak. Right: mark windows."
+      return "Share Cloak — ON AIR. Left: uncloak. Right: mark windows." + extra
     if (root.barState === "restore")
-      return "Share Cloak — interrupted session. Left: restore windows."
+      return "Share Cloak — interrupted session. Left: restore windows." + extra
     if (root.barState === "armed")
-      return "Share Cloak — watching for a share. Left: cloak now. Right: mark windows."
-    return "Share Cloak — auto-cloak is off. Left: cloak. Right: mark windows."
+      return "Share Cloak — watching for a share. Left: cloak now. Right: mark windows." + extra
+    return "Share Cloak — auto-cloak is off. Left: cloak. Right: mark windows." + extra
   }
 
   implicitWidth: button.implicitWidth
