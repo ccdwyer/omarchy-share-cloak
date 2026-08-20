@@ -199,8 +199,8 @@ test("marks: Super+F10 class mark warns when siblings are tiled", () => {
   ]
   assert.strictEqual(Marks.tiledClassCount(clients, "foot"), 2)
   assert.strictEqual(Marks.tiledClassCount(clients, "google-chrome"), 1)
-  assert.ok(Marks.markNotice("foot", 2).indexOf("2 tiled windows") >= 0)
-  assert.ok(Marks.markNotice("foot", 2).indexOf("Super+T") >= 0)
+  assert.ok(Marks.markNotice("foot", 2).indexOf("2 tiled windows will vanish") >= 0)
+  assert.ok(Marks.markNotice("foot", 2).indexOf("tiles them back") >= 0)
   assert.strictEqual(Marks.markNotice("Signal", 0), "marked Signal")
 })
 
@@ -265,7 +265,7 @@ test("hypr: cloak batch vanishes every marked window onto special:cloak", () => 
   assert.ok(batch.indexOf('window = "address:0x64cea2527000"') < 0)
 })
 
-test("hypr: tiled marked windows cannot restore losslessly", () => {
+test("hypr: tiled restore is workspace + settiled, not pixel geometry", () => {
   const clients = Clients.captureAll(jsonFix("clients-messy.json"))
   const marked = Marks.markedClients(clients, [
     { class: "Signal", title: ".*" },
@@ -274,8 +274,24 @@ test("hypr: tiled marked windows cannot restore losslessly", () => {
   assert.ok(Hypr.cannotRestoreTiled(marked))
   const floatingOnly = marked.filter((c) => c.floating)
   assert.strictEqual(Hypr.cannotRestoreTiled(floatingOnly), false)
-  const firefox = clients.filter((c) => c.floating)
-  assert.strictEqual(Hypr.cannotRestoreTiled(firefox), false)
+  const cmds = Hypr.restoreCommands({
+    steps: [
+      {
+        kind: "move",
+        address: "0xaaa",
+        fromWorkspace: "1",
+        fromWorkspaceId: 1,
+        floating: false,
+        at: [40, 48],
+        size: [720, 900]
+      }
+    ]
+  })
+  const batch = Hypr.formatBatch(cmds)
+  assert.ok(batch.indexOf('hl.dsp.window.move({ workspace = "1", follow = false, window = "address:0xaaa" })') >= 0)
+  assert.ok(batch.indexOf("hl.dsp.window.float({ action = \"disable\", window = \"address:0xaaa\" })") >= 0)
+  assert.ok(batch.indexOf("x = 40") < 0)
+  assert.ok(batch.indexOf("x = 720") < 0)
 })
 
 test("hypr: restore floating geometry after move", () => {
@@ -882,10 +898,6 @@ test("round-trip soak: 200 randomized cloak/uncloak cycles with ownership", () =
     })
     const marked = Marks.markedClients(original, marks)
     const unmarked = Marks.unmarkedClients(original, marks)
-    if (Hypr.cannotRestoreTiled(marked)) {
-      assert.strictEqual(session.mutations.length, 0, "cycle " + cycle + " refused tiled cloak")
-      continue
-    }
     Session.recordMoves(session, marked)
     Session.recordDims(session, unmarked, 0.85, false)
     if (cycle % 7 === 0 && marked.length) {
@@ -945,8 +957,11 @@ test("round-trip soak: 200 randomized cloak/uncloak cycles with ownership", () =
       }
       if (Marks.isMarked(c, marks)) {
         assert.strictEqual(now.workspaceName, c.workspaceName, "cycle " + cycle + " marked round-trip")
-        assert.strictEqual(JSON.stringify(now.at), JSON.stringify(c.at), "cycle " + cycle + " tiled/float geom x/y")
-        assert.strictEqual(JSON.stringify(now.size), JSON.stringify(c.size), "cycle " + cycle + " tiled/float geom size")
+        assert.strictEqual(!!now.floating, !!c.floating, "cycle " + cycle + " floating flag")
+        if (c.floating) {
+          assert.strictEqual(JSON.stringify(now.at), JSON.stringify(c.at), "cycle " + cycle + " float geom x/y")
+          assert.strictEqual(JSON.stringify(now.size), JSON.stringify(c.size), "cycle " + cycle + " float geom size")
+        }
       }
       if (wasUserDimmed)
         assert.strictEqual(now.alpha, 0.11, "cycle " + cycle + " user dim preserved")

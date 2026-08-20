@@ -43,7 +43,7 @@ omarchy-shell shell rescanPlugins
 | Combo | Action |
 |---|---|
 | Super+F9 | Toggle cloak / uncloak (also restores an interrupted session) |
-| Super+F10 | Mark the focused window's class (stays marked forever). A toast names the class; if any window of that class is tiled, cloak will refuse until you float it (`Super+T`) or unmark it. |
+| Super+F10 | Mark the focused window's class (stays marked forever). Tiled windows of that class vanish too. |
 | Bar chip, left click | Same as Super+F9 |
 | Bar chip, right click | Open the mark list |
 
@@ -61,7 +61,7 @@ If a bind collides with one you already have, the bar chip still works. Occupied
 ### What cloak does
 
 1. Snapshot windows, workspaces, floating geometry, special workspaces, and notification mode to `~/.local/state/share-cloak/session.json`. Every mutation is recorded with **ownership**.
-2. **Every marked window** — tiled or floating — moves to `special:cloak`. That move is the **only** protection mechanism. Hyprland does not expose dwindle/master tree JSON, so a tiled window cannot be restored losslessly after leaving the layout. If any marked window is tiled, Cloak **refuses** to start (toast) rather than fake a hide with `alpha 0` / `nofocus` on a still-present tile. Float the window or unmark it, then cloak. Cover cards draw over already-vanished windows.
+2. **Every marked window** — tiled or floating — moves to `special:cloak`. That move is the **only** protection mechanism. Uncloak puts each window back on its original workspace: floating windows keep pixel geometry; tiled windows are tiled again. Hyprland does not expose dwindle/master tree JSON, so split ratios and sibling pairing can change. Cover cards draw over already-vanished windows.
 3. Catch new windows from marked apps the same way: they vanish to `special:cloak`.
 4. Optionally dim unmarked windows via per-address `setprop alpha` (no `windowrulev2` accumulation).
 5. Cover the wallpaper with an owned below-windows layer plate (theme background + a slight gradient). Restore = destroy the surface.
@@ -75,7 +75,7 @@ Bar chip states: **cloak** (idle) / **CLOAK** (armed, watching for a share) / **
 ## Honest limitations
 
 - **Vanish, not blur.** Hyprland has no per-client capture-blur primitive. **Every** marked window is moved to `special:cloak`. `alpha 0` / `nofocus` on a still-present tiled window is not protection — a screencast can still capture it. Cover cards on a full-output share are cosmetic presence indicators drawn over already-hidden windows — they cannot leak content if tracking is late.
-- **Tiled marked windows refuse cloak.** Hyprland has no public tiling-tree snapshot. Moving a tiled node reflows siblings and cannot be undone losslessly, so Cloak will not start while a marked window is tiled. Float it or unmark it.
+- **Tiled restore is workspace + tiled, not a lossless tree.** Hyprland has no public dwindle/master snapshot. Marked tiled windows still vanish (that is real protection — remaining tiles fill the gap). Uncloak tiles them back on the same workspace; split order and ratios can differ from before.
 - **Window-share bypass.** If you share a *single window*, Cloak cannot hide that window's own pixels, and layer surfaces (plate, ON AIR frame, cover cards) are not visible to viewers. The `screencast` event's owner field detects this: Cloak warns `WINDOW SHARE — Cloak protects full-screen shares` and still runs DND + the workspace guard + vanish of *other* marked windows. Demo with a full-output share.
 - **One-frame flash on unsafe workspace switches.** While cloaked, a workspace event whose target is not in the safe list (the workspace(s) visible at cloak time) covers the output immediately. Safe-list switches never flicker. A one-frame flash of the unsafe workspace is possible; the zero-frame pattern is: share one output, keep unsafe workspaces on the other.
 - **Notifications are mako-only.** No dunst path. Omarchy does not ship mako, so cloak continues with `notifications: unmanaged` instead of stalling. Only a mako config section that actually suppresses notifications is used. If none is configured, or add+re-read fails, the chip says `notifications: unmanaged`. A suppression mode the user already had on is left alone. Missing `makoctl` must not freeze the bar chip or Super+F9/F10.

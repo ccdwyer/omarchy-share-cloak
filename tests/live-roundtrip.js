@@ -57,7 +57,7 @@ if (!parsed.ok)
 
 const floating = parsed.clients.filter((c) => c.floating && !Clients.isOnCloak(c))
 if (floating.length < 1) {
-  console.log("live-roundtrip: SKIP (need at least one floating window; tiled marked windows refuse cloak)")
+  console.log("live-roundtrip: SKIP (need at least one floating window for pixel-geometry round-trip)")
   process.exit(0)
 }
 

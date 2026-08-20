@@ -185,14 +185,17 @@ function geometryCmds(step) {
     var cmds = []
     if (!step || !step.address)
         return cmds
-    if (step.floating)
+    if (step.floating) {
         cmds.push(setfloatingCmd(step.address))
-    else
+        if (step.at && step.at.length >= 2)
+            cmds.push(movePixel(step.address, step.at[0], step.at[1]))
+        if (step.size && step.size.length >= 2)
+            cmds.push(resizePixel(step.address, step.size[0], step.size[1]))
+    } else {
+        // Tiled restore is workspace + settiled. Pixel size is not the
+        // dwindle/master tree, so applying it fights the layout.
         cmds.push(settiledCmd(step.address))
-    if (step.at && step.at.length >= 2)
-        cmds.push(movePixel(step.address, step.at[0], step.at[1]))
-    if (step.size && step.size.length >= 2)
-        cmds.push(resizePixel(step.address, step.size[0], step.size[1]))
+    }
     if (step.fullscreen)
         cmds.push(fullscreenStateCmd(step.address, step.fullscreen, step.fullscreenClient))
     return cmds

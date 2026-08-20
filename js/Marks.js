@@ -97,9 +97,9 @@ function markNotice(className, tiledCount) {
     var klass = normalizeClass(className) || "window"
     var tiled = Number(tiledCount) || 0
     if (tiled === 1)
-        return "marked " + klass + " — 1 tiled window (Super+T to float, or cloak will refuse)"
+        return "marked " + klass + " — 1 tiled window will vanish; uncloak tiles it back"
     if (tiled > 1)
-        return "marked " + klass + " — " + tiled + " tiled windows (Super+T to float, or cloak will refuse)"
+        return "marked " + klass + " — " + tiled + " tiled windows will vanish; uncloak tiles them back"
     return "marked " + klass
 }
 

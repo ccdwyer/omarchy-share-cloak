@@ -436,11 +436,6 @@ Item {
       else
         unmarked.push(clients[i])
     }
-    if (Hypr.cannotRestoreTiled(marked)) {
-      root.session = null
-      root.abortCloak("marked tiled windows cannot restore losslessly — float them or unmark them")
-      return
-    }
     Session.recordMoves(session, marked)
     root.session = session
     root.pendingMarked = marked.slice()
@@ -928,12 +923,9 @@ Item {
         var tiled = Marks.tiledClassCount(root.lastClients, klass)
         if (!tiled && client && !client.floating)
           tiled = 1
-        root.announce(Marks.markNotice(klass, tiled), tiled > 0)
-        if (State.isCloaked()) {
-          if (tiled > 0)
-            return
+        root.announce(Marks.markNotice(klass, tiled), false)
+        if (State.isCloaked())
           root.cloakNewlyMarked(klass, root.lastClients)
-        }
       })
     })
     return "ok"
