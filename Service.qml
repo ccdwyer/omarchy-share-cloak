@@ -74,6 +74,9 @@ Item {
   property string pendingCloakReason: ""
   property bool hydrating: true
   property int uiRevision: 0
+  property bool makoPresent: false
+  property bool workFinishing: false
+  property var cloakBeganAt: 0
 
   function probeCommand() {
     if (root.probeIsBinary)
@@ -141,6 +144,25 @@ Item {
     runWork()
   }
 
+  function finishWork(text, code) {
+    if (root.workFinishing)
+      return
+    var job = root.workCurrent
+    if (!job)
+      return
+    root.workFinishing = true
+    workWatchdog.stop()
+    root.workCurrent = null
+    try {
+      if (job.done)
+        job.done(text, code)
+    } catch (e) {
+      console.warn("share-cloak: work callback failed", e)
+    }
+    root.workFinishing = false
+    Qt.callLater(root.runWork)
+  }
+
   function runWork() {
     if (workProc.running || root.workCurrent)
       return
@@ -148,7 +170,31 @@ Item {
       return
     root.workCurrent = workQueue.shift()
     workProc.command = root.workCurrent.command
+    workWatchdog.restart()
     workProc.running = true
+    // FailedToStart never emits `exited`. If `running` is still false after
+    // the write, the binary was missing and the queue would otherwise stall.
+    if (root.workCurrent && !workProc.running)
+      root.finishWork("", 127)
+  }
+
+  function recoverStaleCloak() {
+    State.transactionBusy = false
+    root.workQueue = []
+    root.workCurrent = null
+    workProc.running = false
+    workWatchdog.stop()
+    if (root.session && Session.isCloakedPhase(root.session) && (root.session.mutations || []).length) {
+      State.enterCloaked(root.session.reason || "manual")
+      State.offerRestore("Cloak interrupted — Super+F9 restores your windows")
+      root.summonOverlay(JSON.stringify({ mode: "restore", pendingRestore: true }))
+    } else {
+      // .pragma library State survives plugin reloads. A FailedToStart
+      // makoctl leaves phase=cloaking with no session; drop it.
+      State.enterResting(Config.autoCloak, false)
+      root.hideOverlay()
+    }
+    root.publish()
   }
 
   function persistSession() {
@@ -297,6 +343,7 @@ Item {
     if (State.phase === "cloaked")
       return "already"
     State.transactionBusy = true
+    root.cloakBeganAt = Date.now()
     State.enterCloaking(reason || "manual")
     root.pendingCloakReason = reason || "manual"
     root.publish()
@@ -307,15 +354,23 @@ Item {
       }
       enqueueWork(["hyprctl", "-j", "monitors"], function(monitorsText) {
         enqueueWork(["hyprctl", "-j", "workspaces"], function(wsText) {
-          enqueueWork(["makoctl", "mode"], function(makoText, makoCode) {
-            enqueueWork(["sh", "-c", "cat \"$1\" 2>/dev/null || true", "sh", root.makoConfigPath()], function(configText) {
-              root.commitCloak(root.pendingCloakReason, clientsText, monitorsText, wsText, makoText, makoCode, configText)
-            })
-          })
+          root.readMakoThenCommit(root.pendingCloakReason, clientsText, monitorsText, wsText)
         })
       })
     })
     return "ok"
+  }
+
+  function readMakoThenCommit(reason, clientsText, monitorsText, wsText) {
+    if (!root.makoPresent) {
+      root.commitCloak(reason, clientsText, monitorsText, wsText, "", 127, "")
+      return
+    }
+    enqueueWork(Mako.modeArgv(), function(makoText, makoCode) {
+      enqueueWork(["sh", "-c", "cat \"$1\" 2>/dev/null || true", "sh", root.makoConfigPath()], function(configText) {
+        root.commitCloak(reason, clientsText, monitorsText, wsText, makoText, makoCode, configText)
+      })
+    })
   }
 
   function commitCloak(reason, clientsText, monitorsText, wsText, makoText, makoCode, configText) {
@@ -551,7 +606,7 @@ Item {
   }
 
   function applyMako(mako) {
-    if (!mako) {
+    if (!mako || !root.makoPresent) {
       State.setNotification("unmanaged", "notifications: unmanaged")
       persistSession()
       return
@@ -580,12 +635,12 @@ Item {
       return
     }
     var mode = modes.shift()
-    enqueueWork(Mako.applyArgv(mode), function(text, code) {
+    enqueueWork(Mako.safeArgv(Mako.applyArgv(mode)), function(text, code) {
       if (Number(code) !== 0) {
         root.tryMakoModes(modes)
         return
       }
-      enqueueWork(["makoctl", "mode"], function(nowText, nowCode) {
+      enqueueWork(Mako.modeArgv(), function(nowText, nowCode) {
         if (Number(nowCode) === 0 && Mako.isVerifiedCurrent(nowText, mode)) {
           Session.recordMakoAdded(root.session, mode)
           State.setNotification("mako", "")
@@ -611,6 +666,7 @@ Item {
     if (reason === "manual")
       State.userOverride = true
     State.transactionBusy = true
+    root.cloakBeganAt = Date.now()
     State.enterUncloaking()
     root.publish()
     enqueueWork(["hyprctl", "-j", "clients"], function(clientsText, clientsCode) {
@@ -706,12 +762,12 @@ Item {
   }
 
   function restoreMakoThenFinish(mode) {
-    enqueueWork(Mako.restoreArgv(mode), function(text, code) {
+    enqueueWork(Mako.safeArgv(Mako.restoreArgv(mode)), function(text, code) {
       if (Number(code) !== 0) {
         root.keepSessionAndOfferRestore("notifications restore failed — Super+F9 to retry")
         return
       }
-      enqueueWork(["makoctl", "mode"], function(nowText, nowCode) {
+      enqueueWork(Mako.modeArgv(), function(nowText, nowCode) {
         if (Number(nowCode) !== 0 || Mako.isVerifiedCurrent(nowText, mode)) {
           root.keepSessionAndOfferRestore("notifications still suppressed — Super+F9 to retry")
           return
@@ -903,12 +959,12 @@ Item {
 
   function openMarks() {
     State.overlayMode = "marks"
+    root.summonOverlay(JSON.stringify({ mode: "marks" }))
     enqueueWork(["hyprctl", "-j", "clients"], function(text) {
       var clients = Clients.captureAll(Clients.parseClients(text))
       root.lastClients = clients
       State.setClients(clients)
       root.publish()
-      root.summonOverlay(JSON.stringify({ mode: "marks" }))
     })
     return "ok"
   }
@@ -1048,18 +1104,43 @@ Item {
       waitForEnd: true
     }
     onExited: function(exitCode) {
-      var text = workOut.text
-      var job = root.workCurrent
-      var code = exitCode
-      root.workCurrent = null
-      if (job && job.done) {
-        try {
-          job.done(text, code)
-        } catch (e) {
-          console.warn("share-cloak: work callback failed", e)
-        }
+      root.finishWork(workOut.text, exitCode)
+    }
+    onRunningChanged: {
+      if (running) {
+        workWatchdog.restart()
+        return
       }
-      root.runWork()
+      workWatchdog.stop()
+      // Missing binary: FailedToStart emits runningChanged, never exited.
+      if (root.workCurrent)
+        root.finishWork("", 127)
+    }
+  }
+
+  Timer {
+    id: workWatchdog
+    interval: 12000
+    repeat: false
+    onTriggered: {
+      if (!root.workCurrent)
+        return
+      workProc.running = false
+      root.finishWork("", 124)
+      if (State.transactionBusy && (State.phase === "cloaking" || State.phase === "uncloaking"))
+        root.recoverStaleCloak()
+    }
+  }
+
+  Process {
+    id: makoWhichProc
+    command: ["sh", "-c", "command -v makoctl >/dev/null 2>&1 && echo yes || echo no"]
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.makoPresent = String(text || "").trim() === "yes"
+      }
     }
   }
 
@@ -1242,6 +1323,12 @@ Item {
     repeat: true
     running: true
     onTriggered: {
+      if ((State.phase === "cloaking" || State.phase === "uncloaking" || State.transactionBusy) && !root.session) {
+        var started = Number(root.cloakBeganAt) || 0
+        if (!started || Date.now() - started > 3000)
+          root.recoverStaleCloak()
+        return
+      }
       if (!State.isCloaked())
         return
       enqueueWork(["hyprctl", "-j", "clients"], function(text, code) {
@@ -1268,6 +1355,7 @@ Item {
     function openMarks(arg: string): string { return root.openMarks() }
     function ping(arg: string): string { return "ok" }
     function status(arg: string): string { return root.statusJson() }
+    function recover(arg: string): string { root.recoverStaleCloak(); return root.statusJson() }
     function summon(arg: string): string { return root.summonOverlay(arg && arg.length ? arg : root.overlayPayload()) }
     function installBinds(arg: string): string { return root.installBinds(arg) }
   }
@@ -1281,10 +1369,13 @@ Item {
   }
 
   Component.onCompleted: {
+    root.recoverStaleCloak()
     root.applyHostSettings()
     probeWhichProc.running = true
     versionProc.running = true
+    makoWhichProc.running = true
     Qt.callLater(root.scanBinds)
+    Qt.callLater(root.recoverStaleCloak)
     root.publish()
   }
 

@@ -177,6 +177,31 @@ function restoreArgv(mode) {
     return ["makoctl", "mode", "-r", String(mode)]
 }
 
+function shellQuote(value) {
+    return "'" + String(value || "").replace(/'/g, "'\\''") + "'"
+}
+
+// Quickshell Process does not emit `exited` when the binary is missing
+// (FailedToStart only flips `running`). Always start `sh` so a missing
+// makoctl cannot deadlock the cloak work queue. Omarchy does not ship mako.
+function safeArgv(argv) {
+    var list = argv || []
+    if (!list.length)
+        return null
+    var bin = String(list[0] || "")
+    if (!bin)
+        return null
+    var quoted = []
+    for (var i = 0; i < list.length; i++)
+        quoted.push(shellQuote(list[i]))
+    var script = "command -v " + shellQuote(bin) + " >/dev/null 2>&1 || exit 127; exec " + quoted.join(" ")
+    return ["sh", "-c", script]
+}
+
+function modeArgv() {
+    return safeArgv(["makoctl", "mode"])
+}
+
 function alreadyHas(current, mode) {
     return inList(current, mode)
 }

@@ -42,7 +42,7 @@ Conservative choices where the Omarchy / Quickshell / Hyprland API was not 100% 
 - No guessed `makoctl mode -a dnd` when config has no suppression section — that add can succeed without hiding notifications.
 - After a successful `-a`, Cloak re-reads `makoctl mode` and records ownership only if the mode is actually current. Restore is `-r` only for a mode this plugin added; `-r` exit code is checked and `makoctl mode` is re-read to confirm the mode is gone. Failure keeps `session.json` and Super+F9 retries.
 - Mode-section bodies are bounded at the next `[...]` header of any kind (not only the next `[mode=…]`), so an intervening criteria section cannot donate `invisible=1` to the previous mode.
-- If `makoctl` is missing, config has no suppression mode, or add+verify fails, cloak continues with `notifications: unmanaged`.
+- If `makoctl` is missing, config has no suppression mode, or add+verify fails, cloak continues with `notifications: unmanaged`. Omarchy does not ship mako. Quickshell `Process` does **not** emit `exited` on FailedToStart (missing binary), so every `makoctl` argv is wrapped with `Mako.safeArgv` (`sh -c 'command -v … || exit 127; exec …'`). The work queue also treats `running` flipping false without `exited` as 127, and `recoverStaleCloak` clears leftover `cloaking`+`transactionBusy` so the bar cannot stay stuck ON AIR.
 
 ## Helper
 

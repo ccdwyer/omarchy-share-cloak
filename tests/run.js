@@ -540,6 +540,19 @@ test("mako: missing binary is unmanaged", () => {
   assert.strictEqual(info.needsAdd, false)
 })
 
+test("mako: safeArgv wraps optional binaries through sh so Process always starts", () => {
+  const argv = Mako.safeArgv(["makoctl", "mode", "-a", "dnd"])
+  assert.ok(argv)
+  assert.strictEqual(argv[0], "sh")
+  assert.strictEqual(argv[1], "-c")
+  assert.ok(argv[2].indexOf("command -v") >= 0)
+  assert.ok(argv[2].indexOf("makoctl") >= 0)
+  assert.ok(argv[2].indexOf("exit 127") >= 0)
+  assert.strictEqual(JSON.stringify(Mako.modeArgv().slice(0, 2)), JSON.stringify(["sh", "-c"]))
+  assert.strictEqual(Mako.safeArgv(null), null)
+  assert.strictEqual(Mako.safeArgv([]), null)
+})
+
 test("mako: restore only a plugin-added mode", () => {
   const session = Session.create({ clients: [] })
   Session.recordMakoAdded(session, "dnd")
