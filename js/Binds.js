@@ -46,9 +46,22 @@ function find(binds, modmask, key) {
 function isOurs(bind, pluginId) {
     if (!bind)
         return false
-    var blob = String(bind.arg || "") + " " + String(bind.dispatcher || "")
+    if (String(bind.dispatcher || "") !== "exec")
+        return false
     var id = String(pluginId || "io.github.chris.share-cloak")
-    return blob.indexOf(id) >= 0
+    var prefix = "omarchy-shell shell call " + id + " "
+    var arg = String(bind.arg || "")
+    if (arg.indexOf(prefix) !== 0)
+        return false
+    var rest = arg.slice(prefix.length)
+    var space = rest.lastIndexOf(" ")
+    if (space <= 0)
+        return false
+    var method = rest.slice(0, space)
+    var tail = rest.slice(space + 1)
+    if (!method.length)
+        return false
+    return tail === "''" || tail === "\"\""
 }
 
 function conflict(binds, modmask, key, pluginId) {
@@ -78,6 +91,17 @@ function unbindArgv(key) {
     return ["hyprctl", "keyword", "unbind", "SUPER," + String(key)]
 }
 
+function exclusivelyOurs(binds, modmask, key, pluginId) {
+    var hits = find(binds, modmask, key)
+    if (!hits.length)
+        return false
+    for (var i = 0; i < hits.length; i++) {
+        if (!isOurs(hits[i], pluginId))
+            return false
+    }
+    return true
+}
+
 function keysToUnbind(owned, binds, pluginId) {
     var out = []
     var list = owned || []
@@ -85,7 +109,7 @@ function keysToUnbind(owned, binds, pluginId) {
         var key = list[i] && list[i].key !== undefined ? list[i].key : list[i]
         if (!key)
             continue
-        if (oursPresent(binds, SUPER, key, pluginId))
+        if (exclusivelyOurs(binds, SUPER, key, pluginId))
             out.push(String(key))
     }
     return out

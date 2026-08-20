@@ -301,23 +301,6 @@ test("hypr: restore moves every vanished window back", () => {
   assert.ok(batch.indexOf("settiled address:0xaaa") >= 0)
 })
 
-test("hypr: old hide-in-place sessions still restore alpha", () => {
-  const cmds = Hypr.restoreCommands({
-    steps: [
-      {
-        kind: "hide-in-place",
-        address: "0xaaa",
-        from: 1,
-        to: 0,
-        floating: false
-      }
-    ]
-  })
-  const batch = Hypr.formatBatch(cmds)
-  assert.ok(batch.indexOf("setprop address:0xaaa alpha 1") >= 0)
-  assert.ok(batch.indexOf("nofocus 0") >= 0)
-})
-
 test("binds: conflict vs ours", () => {
   const binds = [
     { modmask: 64, key: "F9", dispatcher: "exec", arg: "kitty" },
@@ -341,6 +324,20 @@ test("binds: teardown unbinds only live plugin actions", () => {
   ]
   assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, userRebound, "io.github.chris.share-cloak")), JSON.stringify(["F10"]))
   assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, [], "io.github.chris.share-cloak")), JSON.stringify([]))
+})
+
+test("binds: mixed plugin+user combo is not unbound", () => {
+  const owned = [{ key: "F9" }, { key: "F10" }]
+  const mixed = [
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak toggle ''" },
+    { modmask: 64, key: "F9", dispatcher: "exec", arg: "kitty" },
+    { modmask: 64, key: "F10", dispatcher: "exec", arg: "omarchy-shell shell call io.github.chris.share-cloak markFocused ''" }
+  ]
+  assert.ok(Binds.oursPresent(mixed, 64, "F9", "io.github.chris.share-cloak"))
+  assert.ok(Binds.conflict(mixed, 64, "F9", "io.github.chris.share-cloak"))
+  assert.strictEqual(Binds.exclusivelyOurs(mixed, 64, "F9", "io.github.chris.share-cloak"), false)
+  assert.strictEqual(Binds.exclusivelyOurs(mixed, 64, "F10", "io.github.chris.share-cloak"), true)
+  assert.strictEqual(JSON.stringify(Binds.keysToUnbind(owned, mixed, "io.github.chris.share-cloak")), JSON.stringify(["F10"]))
 })
 
 test("hypr: workspace names with separators fall back to id", () => {

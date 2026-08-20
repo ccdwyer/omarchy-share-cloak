@@ -123,15 +123,6 @@ function cannotRestoreTiled(marked) {
     return tiledMarked(marked).length > 0
 }
 
-function revealInPlaceCommands(step) {
-    var cmds = []
-    if (!step || !step.address)
-        return cmds
-    cmds.push(setprop(step.address, "nofocus", 0))
-    cmds.push(alphaCmd(step.address, step.from === undefined ? 1 : step.from))
-    return cmds
-}
-
 function dimCommands(unmarked, options) {
     var opts = options || {}
     var alpha = opts.dimAlpha === undefined ? DEFAULT_DIM_ALPHA : Number(opts.dimAlpha)
@@ -194,7 +185,6 @@ function geometryCmds(step) {
 function restoreCommands(plan) {
     var steps = (plan && plan.steps) || plan || []
     var props = []
-    var hides = []
     var moves = []
     var i
     for (i = 0; i < steps.length; i++) {
@@ -205,17 +195,10 @@ function restoreCommands(plan) {
             props.push(alphaCmd(step.address, step.from === undefined ? 1 : step.from))
         else if (step.kind === "dimaround" && step.address)
             props.push(dimaroundCmd(step.address, !!step.from))
-        else if (step.kind === "hide-in-place")
-            hides.push(step)
         else if (step.kind === "move" || step.kind === "catch-all-move")
             moves.push(step)
     }
     var cmds = props.slice()
-    for (i = 0; i < hides.length; i++) {
-        var rev = revealInPlaceCommands(hides[i])
-        for (var r = 0; r < rev.length; r++)
-            cmds.push(rev[r])
-    }
     for (i = 0; i < moves.length; i++) {
         var stepM = moves[i]
         if (!stepM.address)

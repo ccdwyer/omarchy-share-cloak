@@ -121,32 +121,6 @@ function recordMoves(session, marked) {
     }
 }
 
-function recordHideInPlace(session, tiled) {
-    var list = tiled || []
-    for (var i = 0; i < list.length; i++) {
-        var src = list[i]
-        var c = captureClient(src)
-        if (!c || !c.address)
-            continue
-        var from = src.alpha !== undefined && src.alpha !== null && !isNaN(Number(src.alpha)) ? Number(src.alpha) : undefined
-        addMutation(session, {
-            kind: "hide-in-place",
-            owned: true,
-            address: c.address,
-            class: c.class,
-            title: c.title,
-            fromWorkspace: c.workspaceName || "1",
-            fromWorkspaceId: c.workspaceId,
-            at: c.at,
-            size: c.size,
-            floating: false,
-            from: from,
-            to: 0,
-            captured: from !== undefined
-        })
-    }
-}
-
 function priorAlpha(c) {
     if (!c)
         return 1
@@ -261,7 +235,7 @@ function findOwnedMove(session, address) {
         var m = list[i]
         if (!m || !m.owned)
             continue
-        if ((m.kind === "move" || m.kind === "catch-all-move" || m.kind === "hide-in-place") && m.address === address)
+        if ((m.kind === "move" || m.kind === "catch-all-move") && m.address === address)
             return m
     }
     return null
@@ -321,14 +295,6 @@ function reconcileWithLive(session, liveClients) {
             else
                 name = String(live.workspace || "")
             if (name !== "special:cloak" && name !== "cloak")
-                m.owned = false
-            continue
-        }
-        if (m.kind === "hide-in-place") {
-            if (!live)
-                continue
-            var ha = liveAlpha(live)
-            if (ha !== null && !approxEqual(ha, m.to))
                 m.owned = false
             continue
         }
@@ -441,7 +407,7 @@ function coverCards(session, currentSafeName) {
         var m = muts[i]
         if (!m || !m.owned)
             continue
-        if (m.kind !== "move" && m.kind !== "catch-all-move" && m.kind !== "hide-in-place")
+        if (m.kind !== "move" && m.kind !== "catch-all-move")
             continue
         if (currentSafeName && m.fromWorkspace && String(m.fromWorkspace) !== String(currentSafeName))
             continue
