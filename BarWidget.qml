@@ -66,6 +66,9 @@ BarWidget {
   function tooltip() {
     var snap = State.snapshot()
     var extra = snap.bindNote ? (" " + snap.bindNote) : ""
+    var err = snap.lastError || snap.toast || ""
+    if (err)
+      extra = " " + err + extra
     if (root.barState === "onair")
       return "Share Cloak — ON AIR. Left: uncloak. Right: mark windows." + extra
     if (root.barState === "restore")

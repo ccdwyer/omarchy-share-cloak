@@ -190,6 +190,20 @@ test("marks: title regex and invalid regex degrade", () => {
   assert.ok(Marks.isMarked({ class: "Code", title: "foo ( bar" }, [{ class: "Code", title: "(" }]))
 })
 
+test("marks: Super+F10 class mark warns when siblings are tiled", () => {
+  const clients = [
+    { class: "foot", title: "a", floating: false },
+    { class: "foot", title: "b", floating: false },
+    { class: "foot", title: "c", floating: true },
+    { class: "google-chrome", title: "x", floating: false }
+  ]
+  assert.strictEqual(Marks.tiledClassCount(clients, "foot"), 2)
+  assert.strictEqual(Marks.tiledClassCount(clients, "google-chrome"), 1)
+  assert.ok(Marks.markNotice("foot", 2).indexOf("2 tiled windows") >= 0)
+  assert.ok(Marks.markNotice("foot", 2).indexOf("Super+T") >= 0)
+  assert.strictEqual(Marks.markNotice("Signal", 0), "marked Signal")
+})
+
 test("marks: toggle class is idempotent add/remove", () => {
   let rules = Marks.toggleClass([], "Signal")
   assert.strictEqual(rules.length, 1)

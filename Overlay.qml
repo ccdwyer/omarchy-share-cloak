@@ -348,9 +348,9 @@ Item {
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.bottom: parent.bottom
       anchors.bottomMargin: Style.gapsOut + Style.space(16)
-      height: Style.space(32)
-      width: toastText.implicitWidth + Style.space(24)
-      radius: height / 2
+      width: Math.min(Style.space(560), toastPanel.width - Style.gapsOut * 2)
+      height: toastText.implicitHeight + Style.space(20)
+      radius: Math.max(8, root.cornerRadius / 2)
       color: root.background
       border.color: root.accent
       border.width: 1
@@ -358,10 +358,13 @@ Item {
       Text {
         id: toastText
         anchors.centerIn: parent
+        width: parent.width - Style.space(24)
+        wrapMode: Text.Wrap
+        horizontalAlignment: Text.AlignHCenter
         text: root.toast
         color: root.accent
         font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: Style.font.body
         font.bold: true
       }
     }

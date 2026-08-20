@@ -77,6 +77,7 @@ Item {
   property bool makoPresent: false
   property bool workFinishing: false
   property var cloakBeganAt: 0
+  property bool writingMarks: false
 
   function probeCommand() {
     if (root.probeIsBinary)
@@ -205,8 +206,26 @@ Item {
   }
 
   function persistMarks() {
+    root.writingMarks = true
     marksFile.setText(Config.serializeMarks() + "\n")
-    enqueueWork([root.probeCommand(), "secure", root.marksPath], null)
+    enqueueWork([root.probeCommand(), "secure", root.marksPath], function() {
+      Qt.callLater(function() { root.writingMarks = false })
+    })
+  }
+
+  function announce(msg, isError) {
+    var text = String(msg || "")
+    if (!text)
+      return
+    if (isError)
+      State.setError(text)
+    State.setToast(text)
+    State.overlayMode = "toast"
+    root.summonOverlay(JSON.stringify({ mode: "toast" }))
+    toastTimer.interval = text.length > 48 ? 9000 : 5000
+    toastTimer.restart()
+    Quickshell.execDetached(["omarchy", "notification", "send", "--app-name", "Share Cloak", "-g", "󰖪", "Share Cloak", text])
+    root.publish()
   }
 
   function persistNow() {
@@ -576,13 +595,9 @@ Item {
           root.keepSessionAndOfferRestore(reason || "cloak failed — Super+F9 restores your windows")
           return
         }
-        State.setError(reason || "cloak failed")
-        State.setToast("cloak failed — protection not active")
         State.enterResting(Config.autoCloak, true)
-        State.overlayMode = "toast"
-        root.summonOverlay(JSON.stringify({ mode: "toast" }))
-        toastTimer.restart()
         clearSessionFile()
+        root.announce(reason || "cloak failed — protection not active", true)
         State.transactionBusy = false
         root.publish()
       })
@@ -594,15 +609,10 @@ Item {
       root.keepSessionAndOfferRestore(reason || "cloak failed — Super+F9 restores your windows")
       return
     }
-    State.setError(reason || "cloak failed")
-    State.setToast(reason || "cloak failed — protection not active")
     State.enterResting(Config.autoCloak, true)
-    State.overlayMode = "toast"
-    root.summonOverlay(JSON.stringify({ mode: "toast" }))
-    toastTimer.restart()
     clearSessionFile()
     State.transactionBusy = false
-    root.publish()
+    root.announce(reason || "cloak failed — protection not active", true)
   }
 
   function applyMako(mako) {
@@ -896,27 +906,35 @@ Item {
       } catch (e) {
         client = null
       }
-      if (!client || !client.address)
-        client = Clients.focused(root.lastClients)
-      if (!client)
-        return
-      var klass = String(client["class"] || "")
-      if (!klass)
-        return
-      Config.setMarks(Marks.addClass(Config.marks, klass, ".*"))
-      persistMarks()
-      if (State.isCloaked()) {
-        enqueueWork(["hyprctl", "-j", "clients"], function(clientsText, clientsCode) {
-          var parsed = Clients.parseClientsResult(clientsText, clientsCode)
-          if (!parsed.ok) {
-            State.setToast("could not hide newly marked windows")
-            root.publish()
+      enqueueWork(["hyprctl", "-j", "clients"], function(clientsText, clientsCode) {
+        var parsed = Clients.parseClientsResult(clientsText, clientsCode)
+        if (parsed.ok) {
+          root.lastClients = parsed.clients
+          State.setClients(parsed.clients)
+        }
+        if (!client || !client.address)
+          client = Clients.focused(root.lastClients)
+        if (!client) {
+          root.announce("no focused window to mark", true)
+          return
+        }
+        var klass = String(client["class"] || client.className || "")
+        if (!klass) {
+          root.announce("focused window has no class to mark", true)
+          return
+        }
+        Config.setMarks(Marks.addClass(Config.marks, klass, ".*"))
+        persistMarks()
+        var tiled = Marks.tiledClassCount(root.lastClients, klass)
+        if (!tiled && client && !client.floating)
+          tiled = 1
+        root.announce(Marks.markNotice(klass, tiled), tiled > 0)
+        if (State.isCloaked()) {
+          if (tiled > 0)
             return
-          }
-          root.cloakNewlyMarked(klass, parsed.clients)
-        })
-      }
-      root.publish()
+          root.cloakNewlyMarked(klass, root.lastClients)
+        }
+      })
     })
     return "ok"
   }
@@ -1261,11 +1279,17 @@ Item {
     printErrors: false
     watchChanges: true
     onLoaded: {
+      if (root.writingMarks)
+        return
       Config.loadMarks(text())
       root.publish()
     }
     onLoadFailed: root.publish()
-    onFileChanged: reload()
+    onFileChanged: {
+      if (root.writingMarks)
+        return
+      reload()
+    }
   }
 
   Timer {

@@ -67,6 +67,42 @@ function isMarked(client, rules) {
     return false
 }
 
+function classWindows(clients, className) {
+    var want = normalizeClass(className).toLowerCase()
+    var list = clients || []
+    var out = []
+    if (!want)
+        return out
+    for (var i = 0; i < list.length; i++) {
+        var c = list[i]
+        if (!c)
+            continue
+        if (String(c["class"] || c.className || "").toLowerCase() === want)
+            out.push(c)
+    }
+    return out
+}
+
+function tiledClassCount(clients, className) {
+    var list = classWindows(clients, className)
+    var n = 0
+    for (var i = 0; i < list.length; i++) {
+        if (list[i] && !list[i].floating)
+            n++
+    }
+    return n
+}
+
+function markNotice(className, tiledCount) {
+    var klass = normalizeClass(className) || "window"
+    var tiled = Number(tiledCount) || 0
+    if (tiled === 1)
+        return "marked " + klass + " — 1 tiled window (Super+T to float, or cloak will refuse)"
+    if (tiled > 1)
+        return "marked " + klass + " — " + tiled + " tiled windows (Super+T to float, or cloak will refuse)"
+    return "marked " + klass
+}
+
 function classIsMarked(className, rules) {
     var want = normalizeClass(className).toLowerCase()
     if (!want)

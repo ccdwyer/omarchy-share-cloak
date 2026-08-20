@@ -43,7 +43,7 @@ omarchy-shell shell rescanPlugins
 | Combo | Action |
 |---|---|
 | Super+F9 | Toggle cloak / uncloak (also restores an interrupted session) |
-| Super+F10 | Mark the focused window's class (stays marked forever) |
+| Super+F10 | Mark the focused window's class (stays marked forever). A toast names the class; if any window of that class is tiled, cloak will refuse until you float it (`Super+T`) or unmark it. |
 | Bar chip, left click | Same as Super+F9 |
 | Bar chip, right click | Open the mark list |
 
