@@ -301,6 +301,17 @@ test("mako: configured mode without invisible is not suppression", () => {
   assert.strictEqual(info.manager, "unmanaged")
 })
 
+test("mako: criteria section between modes is not attributed to the previous mode", () => {
+  const configured = Mako.parseSuppressionModes(fixture("mako-config-criteria-between.txt"))
+  assert.ok(configured.indexOf("dnd") >= 0, "dnd keeps its own invisible=1")
+  assert.ok(configured.indexOf("quiet") < 0, "quiet must not inherit urgency=low invisible")
+})
+
+test("mako: isVerifiedCurrent after remove", () => {
+  assert.strictEqual(Mako.isVerifiedCurrent("default\ndnd\n", "dnd"), true)
+  assert.strictEqual(Mako.isVerifiedCurrent("default\n", "dnd"), false)
+})
+
 test("mako: no config does not guess candidates", () => {
   const info = Mako.inspect(fixture("mako-modes-none.txt"), 0, "")
   assert.strictEqual(info.needsAdd, false)

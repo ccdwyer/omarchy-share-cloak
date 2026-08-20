@@ -89,7 +89,7 @@ Bar chip states: **cloak** (idle) / **CLOAK** (armed, watching for a share) / **
 
 ## Settings
 
-Inline on the `shell.json` bar-widget / plugins entry (no plugin-owned settings file):
+These keys are read **only** from the bar-widget layout entry in `shell.json`. The same keys on a `plugins[]` service entry are ignored, so load order cannot fight the widget.
 
 | Key | Default | Meaning |
 |---|---|---|

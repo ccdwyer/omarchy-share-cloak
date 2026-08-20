@@ -6,7 +6,7 @@ Conservative choices where the Omarchy / Quickshell / Hyprland API was not 100% 
 
 - **Entry points are `Item`s**, not `ShellRoot`. Overlay exposes `open(payloadJson)` and `close()` for `omarchy-shell shell summon` / `hide`.
 - **Documented IPC is the primary path.** Verbs are `omarchy-shell shell summon|hide|toggle|call <id> …`. `call` always includes `<arg>`; no-argument methods pass `''`. In-process method calls are used only when `pluginRegistry.serviceFor` already returned this plugin's own Item. We do **not** call `shell.firstPartyServiceFor` or assume other injected host APIs exist.
-- **Injected properties we do rely on:** bar-widget schema keys (`autoCloak`, `workspaceGuard`, `dimOthers`, `coverCards`) on the bar-widget entry point, because that is how Quattro delivers inline `shell.json` settings. The service declares the same keys as `var` with **no defaults**, so an uninjected service cannot overwrite widget `false` with `true`. `Config.js` is the runtime source of truth after that push. Marks stay in `~/.local/state/share-cloak/marks.json` (growing list; a plugin cannot write `shell.json`).
+- **Injected properties we do rely on:** bar-widget schema keys (`autoCloak`, `workspaceGuard`, `dimOthers`, `coverCards`) on the **bar-widget** entry only. The service still *declares* the same `var`s (so a host that injects them does not fail QML load) but **does not apply them** — `BarWidget.pushSettings` is the single writer into `Config.js`. A `plugins[]` copy of those keys is ignored. Marks stay in `~/.local/state/share-cloak/marks.json` (growing list; a plugin cannot write `shell.json`).
 - **`keepLoaded: true`** so the overlay's layer-shell windows survive between summons. The spec JSON omitted this; the Quattro reference wins.
 - **`barWidget` metadata block** is required by the reference when `kinds` includes `bar-widget`. The spec's example JSON omitted it; the reference wins.
 - **`moduleName` is `io.github.chris.share-cloak` on every entry point** (Service, Overlay, BarWidget).
@@ -39,7 +39,8 @@ Conservative choices where the Omarchy / Quickshell / Hyprland API was not 100% 
 
 - `makoctl mode` lists **currently enabled** modes. Suppression modes are only those `[mode=name]` sections in `~/.config/mako/config` whose body sets `invisible=1` (or `inhibit=1`). A mode that is merely named `dnd` is not enough.
 - No guessed `makoctl mode -a dnd` when config has no suppression section — that add can succeed without hiding notifications.
-- After a successful `-a`, Cloak re-reads `makoctl mode` and records ownership only if the mode is actually current. Restore is `-r` only for a mode this plugin added.
+- After a successful `-a`, Cloak re-reads `makoctl mode` and records ownership only if the mode is actually current. Restore is `-r` only for a mode this plugin added; `-r` exit code is checked and `makoctl mode` is re-read to confirm the mode is gone. Failure keeps `session.json` and Super+F9 retries.
+- Mode-section bodies are bounded at the next `[...]` header of any kind (not only the next `[mode=…]`), so an intervening criteria section cannot donate `invisible=1` to the previous mode.
 - If `makoctl` is missing, config has no suppression mode, or add+verify fails, cloak continues with `notifications: unmanaged`.
 
 ## Helper

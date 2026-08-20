@@ -344,6 +344,7 @@ Item {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
+    mask: Region {}
 
     Rectangle {
       anchors.horizontalCenter: parent.horizontalCenter

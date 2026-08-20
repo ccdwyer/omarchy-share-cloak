@@ -40,22 +40,31 @@ function sectionSuppresses(body) {
     return false
 }
 
+function nextHeaderIndex(src, from) {
+    var rest = String(src || "")
+    var start = from || 0
+    for (var i = start; i < rest.length; i++) {
+        if (rest.charAt(i) !== "[")
+            continue
+        if (i > 0 && rest.charAt(i - 1) !== "\n" && rest.charAt(i - 1) !== "\r")
+            continue
+        return i
+    }
+    return rest.length
+}
+
 function parseSuppressionModes(text) {
     var src = String(text || "")
     var modes = []
     var seen = {}
     var re = /\[mode=([^\]]+)\]/g
     var m
-    var matches = []
     while ((m = re.exec(src))) {
-        matches.push({ name: String(m[1] || "").trim(), index: m.index, end: re.lastIndex })
-    }
-    for (var i = 0; i < matches.length; i++) {
-        var name = matches[i].name
+        var name = String(m[1] || "").trim()
         if (!name || seen[name])
             continue
-        var start = matches[i].end
-        var stop = i + 1 < matches.length ? matches[i + 1].index : src.length
+        var start = re.lastIndex
+        var stop = nextHeaderIndex(src, start)
         var body = src.slice(start, stop)
         if (!sectionSuppresses(body))
             continue

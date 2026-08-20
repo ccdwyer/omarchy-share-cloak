@@ -9,8 +9,8 @@ BarWidget {
   id: root
   moduleName: "io.github.chris.share-cloak"
 
-  // Host-injected from the bar.layout entry. This is the authoritative
-  // settings source for the bar-widget schema keys.
+  // Host-injected from the bar.layout entry. Sole writer of schema keys
+  // into Config.js; the service entry does not apply the same keys.
   property bool autoCloak: true
   property bool workspaceGuard: true
   property bool dimOthers: true

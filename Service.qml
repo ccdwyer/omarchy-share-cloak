@@ -85,24 +85,10 @@ Item {
     Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, method, a])
   }
 
-  // Only copy keys the host actually injected onto this Item.
+  // Schema keys are applied only by BarWidget.pushSettings (bar.layout
+  // entry). plugins[] copies of the same keys are ignored so load order
+  // cannot clobber the widget.
   function applyHostSettings() {
-    var s = {}
-    if (root.autoCloak !== undefined && root.autoCloak !== null)
-      s.autoCloak = root.autoCloak
-    if (root.workspaceGuard !== undefined && root.workspaceGuard !== null)
-      s.workspaceGuard = root.workspaceGuard
-    if (root.dimOthers !== undefined && root.dimOthers !== null)
-      s.dimOthers = root.dimOthers
-    if (root.coverCards !== undefined && root.coverCards !== null)
-      s.coverCards = root.coverCards
-    var n = 0
-    for (var k in s) {
-      if (s.hasOwnProperty(k))
-        n++
-    }
-    if (n)
-      Config.applySettings(s)
     root.onSettingsChanged()
   }
 
@@ -694,9 +680,23 @@ Item {
           return
         }
         if (makoStep && makoStep.to) {
-          enqueueWork(Mako.restoreArgv(makoStep.to), function() {
-            root.finishUncloak()
-          })
+          root.restoreMakoThenFinish(makoStep.to)
+          return
+        }
+        root.finishUncloak()
+      })
+    })
+  }
+
+  function restoreMakoThenFinish(mode) {
+    enqueueWork(Mako.restoreArgv(mode), function(text, code) {
+      if (Number(code) !== 0) {
+        root.keepSessionAndOfferRestore("notifications restore failed — Super+F9 to retry")
+        return
+      }
+      enqueueWork(["makoctl", "mode"], function(nowText, nowCode) {
+        if (Number(nowCode) !== 0 || Mako.isVerifiedCurrent(nowText, mode)) {
+          root.keepSessionAndOfferRestore("notifications still suppressed — Super+F9 to retry")
           return
         }
         root.finishUncloak()
@@ -1116,12 +1116,14 @@ Item {
     onTriggered: {
       if (!State.isCloaked())
         return
-      enqueueWork(["hyprctl", "-j", "clients"], function(text) {
-        var live = Clients.captureAll(Clients.parseClients(text))
-        root.lastClients = live
-        State.setClients(live)
+      enqueueWork(["hyprctl", "-j", "clients"], function(text, code) {
+        var parsed = Clients.parseClientsResult(text, code)
+        if (!parsed.ok)
+          return
+        root.lastClients = parsed.clients
+        State.setClients(parsed.clients)
         if (root.session)
-          Session.reconcileWithLive(root.session, live)
+          Session.reconcileWithLive(root.session, parsed.clients)
         root.publish()
       })
     }
