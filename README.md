@@ -15,7 +15,7 @@ The GIF is a constructed six-beat storyboard of the real sequence (messy desktop
 ## Install
 
 ```sh
-omarchy plugin add <git-url> --enable
+omarchy plugin add https://github.com/ccdwyer/omarchy-share-cloak.git --enable
 ```
 
 Then, on the Omarchy machine, build the optional helper (pw-dump parsing + `0600` session files). There is no committed Linux binary from this Mac — `./build.sh` compiles it on the target, and GitHub Actions (`.github/workflows/ci.yml`) publishes a Linux `cloak-probe` artifact. The plugin QML works without the binary.
@@ -108,6 +108,12 @@ sh tests/live-roundtrip.sh          # Omarchy only: full-set hyprctl round-trip 
 ./scripts/pack-plugin.sh            # gitignored dist/ tarball from HEAD; not the install path
 # optional, needs cargo:
 cargo test --manifest-path src/cloak-probe/Cargo.toml
+```
+
+## Remove
+
+```sh
+omarchy plugin remove io.github.chris.share-cloak
 ```
 
 ## License
