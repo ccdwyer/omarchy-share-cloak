@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
@@ -102,6 +101,10 @@ Item {
     return null
   }
 
+  // `omarchy-shell shell call <id> <method> <arg>` invokes methods on this
+  // overlay (the panel loader), not the service. Overlay.toggle stays overlay
+  // UI. Cloak toggle/markFocused go through the service IpcHandler:
+  // `omarchy-shell io.github.chris.share-cloak <method> ''`.
   function callService(method, arg) {
     var a = arg === undefined || arg === null ? "" : String(arg)
     var svc = root.serviceRef()
@@ -117,14 +120,11 @@ Item {
       if (method === "markFocused" && typeof svc.markFocused === "function")
         return svc.markFocused()
     }
-    if (shell && typeof shell.call === "function") {
-      shell.call(root.moduleName, method, a)
-      return "ok"
-    }
-    ipcProc.command = ["omarchy-shell", "shell", "call", root.moduleName, method, a]
-    ipcProc.running = true
+    Quickshell.execDetached(["omarchy-shell", root.moduleName, method, a])
     return "queued"
   }
+
+  function markFocused(arg) { return root.callService("markFocused", arg) }
 
   function refresh() {
     var snap = State.snapshot()
@@ -171,11 +171,6 @@ Item {
     if (next >= root.markRows.length)
       next = root.markRows.length - 1
     root.selectedIndex = next
-  }
-
-  Process {
-    id: ipcProc
-    running: false
   }
 
   Timer {

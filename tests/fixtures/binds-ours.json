@@ -3,12 +3,12 @@
     "modmask": 64,
     "key": "F9",
     "dispatcher": "exec",
-    "arg": "omarchy-shell shell call io.github.chris.share-cloak toggle ''"
+    "arg": "omarchy-shell io.github.chris.share-cloak toggle ''"
   },
   {
     "modmask": 64,
     "key": "F10",
     "dispatcher": "exec",
-    "arg": "omarchy-shell shell call io.github.chris.share-cloak markFocused ''"
+    "arg": "omarchy-shell io.github.chris.share-cloak markFocused ''"
   }
 ]

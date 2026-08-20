@@ -52,11 +52,7 @@ BarWidget {
       cloakService.toggleCloak()
       return
     }
-    if (bar && bar.shell && typeof bar.shell.call === "function") {
-      bar.shell.call(root.moduleName, "toggle", "")
-      return
-    }
-    Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, "toggle", ""])
+    Quickshell.execDetached(["omarchy-shell", root.moduleName, "toggle", ""])
   }
 
   function openMarks() {
@@ -64,11 +60,7 @@ BarWidget {
       cloakService.openMarks()
       return
     }
-    if (bar && bar.shell && typeof bar.shell.call === "function") {
-      bar.shell.call(root.moduleName, "openMarks", "")
-      return
-    }
-    Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, "openMarks", ""])
+    Quickshell.execDetached(["omarchy-shell", root.moduleName, "openMarks", ""])
   }
 
   function tooltip() {

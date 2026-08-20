@@ -85,7 +85,7 @@ Item {
 
   function ipcCall(method, arg) {
     var a = arg === undefined || arg === null ? "" : String(arg)
-    Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, method, a])
+    Quickshell.execDetached(["omarchy-shell", root.moduleName, method, a])
   }
 
   // Schema keys are applied only by BarWidget.pushSettings (bar.layout
@@ -127,7 +127,7 @@ Item {
       Hyprland.dispatch(request)
       return true
     } catch (e) {
-      enqueueWork(["hyprctl", "dispatch"].concat(String(request).split(" ")), null)
+      enqueueWork(["hyprctl", "dispatch", String(request)], null)
       return true
     }
   }
@@ -1042,7 +1042,7 @@ Item {
       id: workOut
       waitForEnd: true
     }
-    onExited: {
+    onExited: function(exitCode) {
       var text = workOut.text
       var job = root.workCurrent
       var code = exitCode

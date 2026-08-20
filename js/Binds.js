@@ -45,11 +45,11 @@ function find(binds, modmask, key) {
 }
 
 function expectedArg(pluginId, method) {
-    return "omarchy-shell shell call " + String(pluginId || PLUGIN_ID) + " " + String(method) + " ''"
+    return "omarchy-shell " + String(pluginId || PLUGIN_ID) + " " + String(method) + " ''"
 }
 
 function expectedArgDouble(pluginId, method) {
-    return "omarchy-shell shell call " + String(pluginId || PLUGIN_ID) + " " + String(method) + " \"\""
+    return "omarchy-shell " + String(pluginId || PLUGIN_ID) + " " + String(method) + " \"\""
 }
 
 function isOurs(bind, pluginId, method) {

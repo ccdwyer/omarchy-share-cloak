@@ -74,8 +74,8 @@ def fail(msg):
 
 def expected_args(method):
     return (
-        "omarchy-shell shell call %s %s ''" % (plugin, method),
-        'omarchy-shell shell call %s %s ""' % (plugin, method),
+        "omarchy-shell %s %s ''" % (plugin, method),
+        'omarchy-shell %s %s ""' % (plugin, method),
     )
 
 def key_of(bind):
