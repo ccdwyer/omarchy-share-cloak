@@ -42,6 +42,15 @@ var offer = {
     skipped: []
 }
 
+var autoClaimed = false
+
+function claimAuto() {
+    if (autoClaimed)
+        return false
+    autoClaimed = true
+    return true
+}
+
 function setOffer(next) {
     offer = next || offer
 }
@@ -313,4 +322,21 @@ function applyScan(raw) {
     var p = plan(parseBinds(raw))
     setOffer(p)
     return p
+}
+
+function notifyBody(items, skipped) {
+    var lines = []
+    var list = items || []
+    for (var i = 0; i < list.length; i++) {
+        var it = list[i]
+        lines.push((it.chosen || it.keys) + " — " + it.desc)
+    }
+    var miss = skipped || []
+    for (var s = 0; s < miss.length; s++)
+        lines.push("skipped " + miss[s].keys + " (" + (miss[s].conflict || "taken") + ")")
+    return lines.join("\n")
+}
+
+function notifyArgv(appName, headline, body) {
+    return ["omarchy", "notification", "send", "--app-name", String(appName || PLUGIN_ID), "-g", "󰌌", String(headline || "Keybindings"), String(body || "")]
 }

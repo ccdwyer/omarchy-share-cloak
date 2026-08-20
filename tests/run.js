@@ -433,14 +433,32 @@ test("binds: already-ours hides the offer", () => {
   assert.strictEqual(p.already, 1)
 })
 
-test("binds: service scans, does not keyword-bind on startup", () => {
+test("binds: service auto-assigns on first scan, does not keyword-bind", () => {
   const src = fs.readFileSync(path.join(ROOT, "Service.qml"), "utf8")
   assert.ok(src.indexOf("function scanBinds") >= 0)
   assert.ok(src.indexOf("Qt.callLater(root.scanBinds)") >= 0)
+  assert.ok(src.indexOf("Binds.claimAuto()") >= 0)
+  assert.ok(src.indexOf("notifyNewBinds") >= 0)
   assert.ok(src.indexOf("compat/install-binds.py") >= 0)
   assert.ok(src.indexOf("Binds.bindArgv") < 0)
   assert.ok(src.indexOf("function installBinds") >= 0)
   assert.ok(src.indexOf("teardownBinds") >= 0)
+  const overlay = fs.readFileSync(path.join(ROOT, "Overlay.qml"), "utf8")
+  assert.ok(overlay.indexOf("Add keybindings") < 0)
+  const bar = fs.readFileSync(path.join(ROOT, "BarWidget.qml"), "utf8")
+  assert.ok(bar.indexOf("Add keybindings") < 0)
+  assert.ok(bar.indexOf("text: \"keys\"") < 0)
+})
+
+test("binds: notify body lists assigned keys", () => {
+  const body = Binds.notifyBody([{ chosen: "SUPER + F9", desc: "Share Cloak toggle" }], [])
+  assert.ok(body.indexOf("SUPER + F9 — Share Cloak toggle") === 0)
+  const argv = Binds.notifyArgv("Share Cloak", "Share Cloak keybindings", body)
+  assert.strictEqual(argv[0], "omarchy")
+  assert.strictEqual(argv[1], "notification")
+  assert.strictEqual(argv[2], "send")
+  assert.ok(Binds.claimAuto())
+  assert.strictEqual(Binds.claimAuto(), false)
 })
 
 test("binds: skip when preferred and alternate are taken", () => {
