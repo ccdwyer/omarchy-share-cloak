@@ -204,6 +204,21 @@ test("marks: Super+F10 class mark warns when siblings are tiled", () => {
   assert.strictEqual(Marks.markNotice("Signal", 0), "marked Signal")
 })
 
+test("marks: overlay click can unselect one window from a class.* mark", () => {
+  const live = [
+    { address: "0xa", class: "foot", title: "one" },
+    { address: "0xb", class: "foot", title: "two" }
+  ]
+  const all = [{ class: "foot", title: ".*" }]
+  const next = Marks.toggleClient(all, live[0], live)
+  assert.strictEqual(Marks.hasStarRule(next, "foot"), false)
+  assert.strictEqual(Marks.isMarked(live[0], next), false)
+  assert.strictEqual(Marks.isMarked(live[1], next), true)
+  const added = Marks.toggleClient([], live[0], live)
+  assert.strictEqual(Marks.isMarked(live[0], added), true)
+  assert.strictEqual(Marks.isMarked(live[1], added), false)
+})
+
 test("marks: toggle class is idempotent add/remove", () => {
   let rules = Marks.toggleClass([], "Signal")
   assert.strictEqual(rules.length, 1)
@@ -256,13 +271,14 @@ test("hypr: cloak batch vanishes every marked window onto special:cloak", () => 
   ])
   const cmds = Hypr.cloakCommands(marked, unmarked, { dimOthers: true, dimAlpha: 0.85 })
   const batch = Hypr.formatBatch(cmds)
-  assert.ok(batch.indexOf('hl.dsp.window.move({ workspace = "special:cloak", follow = false, window = "address:0x64cea2525760" })') >= 0)
-  assert.ok(batch.indexOf('hl.dsp.window.move({ workspace = "special:cloak", follow = false, window = "address:0x64cea2526000" })') >= 0)
+  assert.ok(batch.indexOf('prop = "no_screen_share"') >= 0)
+  assert.ok(batch.indexOf("0x64cea2525760") >= 0)
+  assert.ok(batch.indexOf("0x64cea2526000") >= 0)
+  assert.ok(batch.indexOf('hl.dsp.window.move({ workspace = "special:cloak"') < 0)
   assert.ok(batch.indexOf("movetoworkspacesilent") < 0)
   assert.ok(batch.indexOf("setprop address:0x64cea2525760 alpha 0") < 0)
-  assert.ok(batch.indexOf("nofocus 1") < 0)
-  assert.ok(batch.indexOf("setprop address:0x64cea2527000 alpha 0.85") >= 0)
-  assert.ok(batch.indexOf('window = "address:0x64cea2527000"') < 0)
+  assert.ok(batch.indexOf('prop = "opacity"') >= 0)
+  assert.ok(batch.indexOf("0x64cea2527000") >= 0)
 })
 
 test("hypr: tiled restore is workspace + settiled, not pixel geometry", () => {
@@ -692,10 +708,13 @@ test("session: gone window is unrestorable, not silent", () => {
 test("session: catch-all records new marked-class window", () => {
   const session = Session.create({ clients: [] })
   const ev = Events.parseLine(fixture("socket2-openwindow.txt").trim())
-  Session.recordCatchAll(session, ev.fields)
+  Session.recordCatchAll(session, Object.assign({}, ev.fields, { floating: true }))
   assert.strictEqual(session.mutations[0].kind, "catch-all-move")
   assert.strictEqual(session.mutations[0].address, "0x64cea2525760")
   assert.strictEqual(session.mutations[0].toWorkspace, "special:cloak")
+  const tiled = Session.create({ clients: [] })
+  Session.recordCatchAll(tiled, Object.assign({}, ev.fields, { floating: false }))
+  assert.strictEqual(tiled.mutations[0].kind, "inplace-hide")
 })
 
 test("session: invalid json does not throw", () => {
@@ -849,6 +868,10 @@ function applyCloakSim(clients, session) {
       live.workspaceName = "special:cloak"
       live.workspaceId = -98
     }
+    if (m.kind === "inplace-hide") {
+      live.hiddenInPlace = true
+      live.noScreenShare = true
+    }
     if (m.kind === "alpha")
       live.alpha = m.to
     if (m.kind === "dimaround")
@@ -876,6 +899,10 @@ function applyRestoreSim(clients, plan) {
         live.size = s.size.slice()
       live.floating = !!s.floating
     }
+    if (s.kind === "inplace-hide") {
+      live.hiddenInPlace = false
+      live.noScreenShare = false
+    }
     if (s.kind === "alpha")
       live.alpha = s.from
     if (s.kind === "dimaround")
@@ -898,7 +925,8 @@ test("round-trip soak: 200 randomized cloak/uncloak cycles with ownership", () =
     })
     const marked = Marks.markedClients(original, marks)
     const unmarked = Marks.unmarkedClients(original, marks)
-    Session.recordMoves(session, marked)
+    Session.recordMoves(session, Hypr.floatingMarked(marked))
+    Session.recordInPlaceHides(session, Hypr.tiledMarked(marked))
     Session.recordDims(session, unmarked, 0.85, false)
     if (cycle % 7 === 0 && marked.length) {
       Session.recordCatchAll(session, {
@@ -1016,10 +1044,12 @@ test("round-trip soak: 200 floating vanish/restore cycles", () => {
   }
 })
 
-test("clients: markedStillVisible catches tiled windows left on the shared workspace", () => {
-  const tiled = Clients.captureAll(jsonFix("clients-messy.json")).filter((c) => !c.floating)
-  const leaked = Clients.markedStillVisible(tiled, jsonFix("clients-messy.json"))
-  assert.strictEqual(leaked.length, 2)
+test("clients: markedStillVisible ignores tiled in-place hides", () => {
+  const all = Clients.captureAll(jsonFix("clients-messy.json"))
+  const tiled = all.filter((c) => !c.floating)
+  const floating = all.filter((c) => c.floating)
+  assert.strictEqual(Clients.markedStillVisible(tiled, jsonFix("clients-messy.json")).length, 0)
+  assert.strictEqual(Clients.markedStillVisible(floating, jsonFix("clients-messy.json")).length, 1)
 })
 
 function runProbe(args, stdin) {

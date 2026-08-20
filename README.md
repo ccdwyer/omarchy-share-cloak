@@ -61,21 +61,21 @@ If a bind collides with one you already have, the bar chip still works. Occupied
 ### What cloak does
 
 1. Snapshot windows, workspaces, floating geometry, special workspaces, and notification mode to `~/.local/state/share-cloak/session.json`. Every mutation is recorded with **ownership**.
-2. **Every marked window** — tiled or floating — moves to `special:cloak`. That move is the **only** protection mechanism. Uncloak puts each window back on its original workspace: floating windows keep pixel geometry; tiled windows are tiled again. Hyprland does not expose dwindle/master tree JSON, so split ratios and sibling pairing can change. Cover cards draw over already-vanished windows.
-3. Catch new windows from marked apps the same way: they vanish to `special:cloak`.
-4. Optionally dim unmarked windows via per-address `setprop alpha` (no `windowrulev2` accumulation).
+2. **Marked floating windows** move to `special:cloak`. **Marked tiled windows stay in the layout**: Hyprland `no_screen_share` blacks them out of the screencast, `opacity 0` hides them on your display, `no_focus` keeps them from eating keys. Siblings do not reflow. Uncloak reverses those props. Cover cards can draw over the empty tile.
+3. Catch new windows from marked apps the same way (tiled in place, floating to `special:cloak`).
+4. Optionally dim unmarked windows via per-address `set_prop opacity` (no `windowrulev2` accumulation).
 5. Cover the wallpaper with an owned below-windows layer plate (theme background + a slight gradient). Restore = destroy the surface.
 6. Pause notifications with mako only when a **configured suppression mode** exists (`[mode=…]` with `invisible=1` or `inhibit=1`). Guessed names are never added. After `-a`, Cloak re-reads `makoctl mode` before claiming notifications are managed. Uncloak removes only a mode this plugin added.
 7. Draw a 3 px ON AIR frame and a `CLOAKED · Super+F9 to uncloak` chip on the overlay layer.
 
-Uncloak replays owned mutations in reverse, verifies each window address still exists **and is no longer on `special:cloak`**, and lists anything unrestorable in a toast. If `hyprctl` or a restore batch fails, `session.json` is kept and Super+F9 retries. User changes made while cloaked (you moved a window off `special:cloak`) are preserved.
+Uncloak replays owned mutations in reverse, verifies vanished floating windows are off `special:cloak`, and lists anything unrestorable in a toast. If `hyprctl` or a restore batch fails, `session.json` is kept and Super+F9 retries. User changes made while cloaked (you moved a vanished floating window off `special:cloak`) are preserved.
 
 Bar chip states: **cloak** (idle) / **CLOAK** (armed, watching for a share) / **ON AIR**.
 
 ## Honest limitations
 
-- **Vanish, not blur.** Hyprland has no per-client capture-blur primitive. **Every** marked window is moved to `special:cloak`. `alpha 0` / `nofocus` on a still-present tiled window is not protection — a screencast can still capture it. Cover cards on a full-output share are cosmetic presence indicators drawn over already-hidden windows — they cannot leak content if tracking is late.
-- **Tiled restore is workspace + tiled, not a lossless tree.** Hyprland has no public dwindle/master snapshot. Marked tiled windows still vanish (that is real protection — remaining tiles fill the gap). Uncloak tiles them back on the same workspace; split order and ratios can differ from before.
+- **Tiled hide is in-place.** Hyprland 0.56 `no_screen_share` draws a black rectangle in the screencast instead of the window buffer. Local `opacity 0` hides the tile without leaving the layout. Cover cards are optional placeholders over that hole.
+- **Floating windows still vanish** onto `special:cloak`. That does not reflow tiles.
 - **Window-share bypass.** If you share a *single window*, Cloak cannot hide that window's own pixels, and layer surfaces (plate, ON AIR frame, cover cards) are not visible to viewers. The `screencast` event's owner field detects this: Cloak warns `WINDOW SHARE — Cloak protects full-screen shares` and still runs DND + the workspace guard + vanish of *other* marked windows. Demo with a full-output share.
 - **One-frame flash on unsafe workspace switches.** While cloaked, a workspace event whose target is not in the safe list (the workspace(s) visible at cloak time) covers the output immediately. Safe-list switches never flicker. A one-frame flash of the unsafe workspace is possible; the zero-frame pattern is: share one output, keep unsafe workspaces on the other.
 - **Notifications are mako-only.** No dunst path. Omarchy does not ship mako, so cloak continues with `notifications: unmanaged` instead of stalling. Only a mako config section that actually suppresses notifications is used. If none is configured, or add+re-read fails, the chip says `notifications: unmanaged`. A suppression mode the user already had on is left alone. Missing `makoctl` must not freeze the bar chip or Super+F9/F10.

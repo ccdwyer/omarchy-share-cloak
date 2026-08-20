@@ -436,7 +436,8 @@ Item {
       else
         unmarked.push(clients[i])
     }
-    Session.recordMoves(session, marked)
+    Session.recordMoves(session, Hypr.floatingMarked(marked))
+    Session.recordInPlaceHides(session, Hypr.tiledMarked(marked))
     root.session = session
     root.pendingMarked = marked.slice()
     root.pendingUnmarked = unmarked.slice()
@@ -493,10 +494,30 @@ Item {
 
   function vanishThenCloak(marked) {
     persistSession()
-    var cmds = Hypr.moveCommands(marked)
+    var cmds = Hypr.moveCommands(marked).concat(Hypr.inPlaceHideCommands(Hypr.tiledMarked(marked)))
     root.pendingBatches = Hypr.chunk(cmds, 20)
     root.flushBatches(function(ok) {
       root.verifyAndFinishCloak(ok)
+    })
+  }
+
+  function verifyTiledHidden(tiled, index, done) {
+    if (!tiled.length || index >= tiled.length) {
+      done(true)
+      return
+    }
+    var addr = tiled[index] && tiled[index].address
+    if (!addr) {
+      root.verifyTiledHidden(tiled, index + 1, done)
+      return
+    }
+    enqueueWork(Hypr.getpropArgv(addr, "no_screen_share"), function(text, code) {
+      var v = Number(code) === 0 ? Hypr.parseGetprop(text) : null
+      if (v !== 1) {
+        done(false)
+        return
+      }
+      root.verifyTiledHidden(tiled, index + 1, done)
     })
   }
 
@@ -516,15 +537,21 @@ Item {
         root.rollbackCloak(live, why)
         return
       }
-      if (root.session)
-        root.session.phase = "cloaked"
-      State.enterCloaked(root.pendingCloakReason)
-      persistSession()
-      root.publish()
-      root.snapshotAndDim(function() {
-        State.transactionBusy = false
-        root.applyMako(root.pendingMako)
+      root.verifyTiledHidden(Hypr.tiledMarked(root.pendingMarked), 0, function(hiddenOk) {
+        if (!hiddenOk) {
+          root.rollbackCloak(live, "tiled windows still exposed to screen share")
+          return
+        }
+        if (root.session)
+          root.session.phase = "cloaked"
+        State.enterCloaked(root.pendingCloakReason)
+        persistSession()
         root.publish()
+        root.snapshotAndDim(function() {
+          State.transactionBusy = false
+          root.applyMako(root.pendingMako)
+          root.publish()
+        })
       })
     })
   }
@@ -713,7 +740,7 @@ Item {
       return
     }
     var job = root.pendingGetprops.shift()
-    enqueueWork(Hypr.getpropArgv(job.address, job.kind === "dimaround" ? "dimaround" : "alpha"), function(text, code) {
+    enqueueWork(Hypr.getpropArgv(job.address, job.kind === "dimaround" ? "dim_around" : "opacity"), function(text, code) {
       var value = Number(code) === 0 ? Hypr.parseGetprop(text) : null
       if (value !== null) {
         for (var i = 0; i < live.length; i++) {
@@ -844,10 +871,14 @@ Item {
   }
 
   function cloakOneClient(client, fields, done) {
+    if (client && !client.floating) {
+      root.hideTiledInPlace(client, fields, done)
+      return
+    }
     root.cloakAddressChecked(client.address, function(ok) {
       if (ok) {
         if (fields) {
-          fields.floating = client.floating
+          fields.floating = true
           fields.at = client.at
           fields.size = client.size
           fields.workspaceName = client.workspaceName
@@ -859,6 +890,39 @@ Item {
       }
       if (done)
         done(ok)
+    })
+  }
+
+  function hideTiledInPlace(client, fields, done) {
+    if (!client || !client.address) {
+      if (done)
+        done(false)
+      return
+    }
+    var cmds = Hypr.inPlaceHideCommands([client])
+    root.pendingBatches = Hypr.chunk(cmds, 20)
+    root.flushBatches(function(ok) {
+      if (!ok) {
+        if (done)
+          done(false)
+        return
+      }
+      enqueueWork(Hypr.getpropArgv(client.address, "no_screen_share"), function(text, code) {
+        var hidden = Number(code) === 0 && Hypr.parseGetprop(text) === 1
+        if (hidden) {
+          if (fields) {
+            fields.floating = false
+            fields.at = client.at
+            fields.size = client.size
+            fields.workspaceName = client.workspaceName
+            fields.workspaceId = client.workspaceId
+            Session.recordCatchAll(root.session, fields)
+          } else if (!Session.findOwnedMove(root.session, client.address))
+            Session.recordInPlaceHides(root.session, [client])
+        }
+        if (done)
+          done(hidden)
+      })
     })
   }
 
@@ -965,6 +1029,20 @@ Item {
     persistMarks()
     root.publish()
     return "ok"
+  }
+
+  function toggleMarkPayload(arg) {
+    var raw = String(arg || "").trim()
+    if (raw.length && raw.charAt(0) === String.fromCharCode(123)) {
+      try {
+        var obj = JSON.parse(raw)
+        Config.setMarks(Marks.toggleClient(Config.marks, obj, root.lastClients))
+        persistMarks()
+        root.publish()
+        return "ok"
+      } catch (e) {}
+    }
+    return root.toggleMark(raw)
   }
 
   function openMarks() {
@@ -1368,6 +1446,7 @@ Item {
     function uncloak(arg: string): string { return root.beginUncloak("manual") }
     function restore(arg: string): string { return root.beginUncloak("restore") }
     function markFocused(arg: string): string { return root.markFocused() }
+    function toggleMark(arg: string): string { return root.toggleMarkPayload(arg) }
     function openMarks(arg: string): string { return root.openMarks() }
     function ping(arg: string): string { return "ok" }
     function status(arg: string): string { return root.statusJson() }

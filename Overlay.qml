@@ -127,6 +127,7 @@ Item {
   }
 
   function markFocused(arg) { return root.callService("markFocused", arg) }
+  function toggleMark(arg) { return root.callService("toggleMark", arg) }
   function installBinds(arg) { return root.callService("installBinds", arg) }
 
   function refresh() {
@@ -142,12 +143,16 @@ Item {
     root.toast = snap.toast || ""
     var rows = []
     var clients = snap.clients || []
-    var classes = Marks.uniqueClasses(clients)
-    for (var i = 0; i < classes.length; i++) {
+    for (var i = 0; i < clients.length; i++) {
+      var c = clients[i]
+      if (!c || !c.address)
+        continue
       rows.push({
-        className: classes[i]["class"],
-        title: classes[i].title,
-        marked: Marks.classIsMarked(classes[i]["class"], Config.marks)
+        className: c["class"] || c.className || "",
+        title: c.title || "",
+        address: c.address,
+        floating: !!c.floating,
+        marked: Marks.isMarked(c, Config.marks)
       })
     }
     root.markRows = rows
@@ -161,7 +166,12 @@ Item {
     var row = root.markRows[root.selectedIndex]
     if (!row)
       return
-    root.callService("toggleMark", row.className)
+    root.callService("toggleMark", JSON.stringify({
+      "class": row.className,
+      className: row.className,
+      title: row.title,
+      address: row.address
+    }))
     Qt.callLater(root.refresh)
   }
 
@@ -398,37 +408,37 @@ Item {
       color: root.background
       borderSpec: root.borderSpec
 
-      MouseArea { anchors.fill: parent; onClicked: {} }
-
-      Item {
-        id: marksKeyCatcher
-        anchors.fill: parent
-        focus: true
-        Keys.priority: Keys.BeforeItem
-        Keys.onPressed: function(event) {
-          if (event.key === Qt.Key_Escape) {
-            root.close()
-            event.accepted = true
-          } else if (event.key === Qt.Key_Down || event.key === Qt.Key_J) {
-            root.moveSel(1)
-            event.accepted = true
-          } else if (event.key === Qt.Key_Up || event.key === Qt.Key_K) {
-            root.moveSel(-1)
-            event.accepted = true
-          } else if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-            root.toggleSelected()
-            event.accepted = true
-          }
-        }
-      }
-
       Column {
+        id: marksColumn
         anchors.fill: parent
         anchors.margins: Style.spacing.panelPadding
         spacing: Style.spacing.md
 
+        Item {
+          id: marksKeyCatcher
+          width: 0
+          height: 0
+          focus: true
+          Keys.priority: Keys.BeforeItem
+          Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Escape) {
+              root.close()
+              event.accepted = true
+            } else if (event.key === Qt.Key_Down || event.key === Qt.Key_J) {
+              root.moveSel(1)
+              event.accepted = true
+            } else if (event.key === Qt.Key_Up || event.key === Qt.Key_K) {
+              root.moveSel(-1)
+              event.accepted = true
+            } else if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+              root.toggleSelected()
+              event.accepted = true
+            }
+          }
+        }
+
         Text {
-          text: "Mark windows to vanish"
+          text: "Mark windows to hide"
           color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.heading
@@ -438,7 +448,7 @@ Item {
         Text {
           width: parent.width
           wrapMode: Text.Wrap
-          text: "Checked classes move to special:cloak the next time you cloak (and stay marked). Super+F10 marks the focused window."
+          text: "Click a row to toggle. Tiled windows stay in the layout (blacked out of the share). Super+F10 marks the focused app class."
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.7)
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -448,69 +458,84 @@ Item {
           visible: !root.markRows.length
           width: parent.width
           wrapMode: Text.Wrap
-          text: "No marked windows yet."
+          text: "No windows to list yet."
           color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
         }
 
-        ListView {
+        Flickable {
           id: markList
           width: parent.width
           height: parent.height - Style.space(96)
           clip: true
-          model: root.markRows
-          currentIndex: root.selectedIndex
-          delegate: Rectangle {
-            required property var modelData
-            required property int index
+          contentWidth: width
+          contentHeight: markColumn.implicitHeight
+          flickableDirection: Flickable.VerticalFlick
+
+          Column {
+            id: markColumn
             width: markList.width
-            height: Style.space(40)
-            radius: Math.max(4, root.cornerRadius / 2)
-            color: index === root.selectedIndex ? Color.menu.selectedBackground : "transparent"
+            spacing: Style.space(4)
 
-            MouseArea {
-              anchors.fill: parent
-              onClicked: {
-                root.selectedIndex = index
-                root.toggleSelected()
-              }
-            }
+            Repeater {
+              model: root.markRows
+              delegate: Rectangle {
+                required property var modelData
+                required property int index
+                width: markColumn.width
+                height: Style.space(44)
+                radius: Math.max(4, root.cornerRadius / 2)
+                color: index === root.selectedIndex ? Color.menu.selectedBackground : "transparent"
 
-            Row {
-              anchors.fill: parent
-              anchors.leftMargin: Style.space(8)
-              anchors.rightMargin: Style.space(8)
-              spacing: Style.space(10)
-
-              Rectangle {
-                width: Style.space(14)
-                height: Style.space(14)
-                anchors.verticalCenter: parent.verticalCenter
-                radius: 3
-                color: modelData.marked ? root.accent : "transparent"
-                border.color: root.accent
-                border.width: 1
-              }
-
-              Column {
-                anchors.verticalCenter: parent.verticalCenter
-                width: parent.width - Style.space(32)
-                Text {
-                  text: modelData.className
-                  color: index === root.selectedIndex ? Color.menu.selectedText : root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  elide: Text.ElideRight
-                  width: parent.width
+                MouseArea {
+                  anchors.fill: parent
+                  z: 8
+                  preventStealing: true
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    root.selectedIndex = index
+                    root.toggleSelected()
+                  }
                 }
-                Text {
-                  text: modelData.title
-                  color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.55)
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  elide: Text.ElideRight
-                  width: parent.width
+
+                Row {
+                  anchors.fill: parent
+                  anchors.leftMargin: Style.space(8)
+                  anchors.rightMargin: Style.space(8)
+                  spacing: Style.space(10)
+
+                  Rectangle {
+                    width: Style.space(16)
+                    height: Style.space(16)
+                    anchors.verticalCenter: parent.verticalCenter
+                    radius: 3
+                    color: modelData.marked ? root.accent : "transparent"
+                    border.color: root.accent
+                    border.width: 1
+                  }
+
+                  Column {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - Style.space(36)
+                    Text {
+                      text: modelData.className + (modelData.floating ? "" : "  tiled")
+                      color: index === root.selectedIndex ? Color.menu.selectedText : root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      elide: Text.ElideRight
+                      width: parent.width
+                    }
+                    Text {
+                      text: modelData.title
+                      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.55)
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideRight
+                      width: parent.width
+                    }
+                  }
                 }
               }
             }

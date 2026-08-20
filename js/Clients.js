@@ -187,6 +187,9 @@ function markedStillVisible(marked, liveClients) {
         var now = live[addr]
         if (!now)
             continue
+        // Tiled windows stay on the shared workspace (hidden in place).
+        if (item.floating === false || (item.floating === undefined && now.floating === false))
+            continue
         if (!isOnCloak(now))
             failed.push(now)
     }

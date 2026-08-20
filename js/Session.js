@@ -121,6 +121,30 @@ function recordMoves(session, marked) {
     }
 }
 
+function recordInPlaceHides(session, tiled) {
+    var list = tiled || []
+    for (var i = 0; i < list.length; i++) {
+        var c = captureClient(list[i])
+        if (!c || !c.address)
+            continue
+        addMutation(session, {
+            kind: "inplace-hide",
+            owned: true,
+            address: c.address,
+            class: c.class,
+            title: c.title,
+            fromWorkspace: c.workspaceName || "1",
+            fromWorkspaceId: c.workspaceId,
+            at: c.at,
+            size: c.size,
+            floating: false,
+            fromOpacity: c.alpha === undefined || c.alpha === null ? 1 : Number(c.alpha),
+            fromNoFocus: 0,
+            fromScreenShare: 0
+        })
+    }
+}
+
 function priorAlpha(c) {
     if (!c)
         return 1
@@ -214,6 +238,23 @@ function recordMakoAdded(session, mode) {
 function recordCatchAll(session, fields) {
     if (!fields || !fields.address)
         return null
+    if (!fields.floating) {
+        return addMutation(session, {
+            kind: "inplace-hide",
+            owned: true,
+            address: fields.address,
+            class: fields["class"] || fields.class || "",
+            title: fields.title || "",
+            fromWorkspace: fields.workspace || fields.workspaceName || "",
+            fromWorkspaceId: fields.workspaceId,
+            at: fields.at,
+            size: fields.size,
+            floating: false,
+            fromOpacity: 1,
+            fromNoFocus: 0,
+            fromScreenShare: 0
+        })
+    }
     return addMutation(session, {
         kind: "catch-all-move",
         owned: true,
@@ -223,7 +264,7 @@ function recordCatchAll(session, fields) {
         fromWorkspace: fields.workspace || fields.workspaceName || "",
         fromWorkspaceId: fields.workspaceId,
         toWorkspace: "special:cloak",
-        floating: !!fields.floating,
+        floating: true,
         at: fields.at,
         size: fields.size
     })
@@ -235,7 +276,7 @@ function findOwnedMove(session, address) {
         var m = list[i]
         if (!m || !m.owned)
             continue
-        if ((m.kind === "move" || m.kind === "catch-all-move") && m.address === address)
+        if ((m.kind === "move" || m.kind === "catch-all-move" || m.kind === "inplace-hide") && m.address === address)
             return m
     }
     return null
@@ -296,6 +337,11 @@ function reconcileWithLive(session, liveClients) {
                 name = String(live.workspace || "")
             if (name !== "special:cloak" && name !== "cloak")
                 m.owned = false
+            continue
+        }
+        if (m.kind === "inplace-hide") {
+            if (!live)
+                continue
             continue
         }
         if (m.kind === "alpha") {
@@ -407,7 +453,7 @@ function coverCards(session, currentSafeName) {
         var m = muts[i]
         if (!m || !m.owned)
             continue
-        if (m.kind !== "move" && m.kind !== "catch-all-move")
+        if (m.kind !== "move" && m.kind !== "catch-all-move" && m.kind !== "inplace-hide")
             continue
         if (currentSafeName && m.fromWorkspace && String(m.fromWorkspace) !== String(currentSafeName))
             continue

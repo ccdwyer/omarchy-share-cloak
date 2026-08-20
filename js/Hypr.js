@@ -68,12 +68,52 @@ function setprop(addr, key, value) {
     return "setprop " + addrSpec(addr) + " " + key + " " + String(value)
 }
 
+function setPropCmd(addr, prop, value) {
+    return "dispatch hl.dsp.window.set_prop({ prop = " + luaString(prop) + ", value = " + luaString(String(value)) + ", " + luaWindow(addr) + " })"
+}
+
 function alphaCmd(addr, alpha) {
-    return setprop(addr, "alpha", alpha)
+    return setPropCmd(addr, "opacity", String(alpha))
 }
 
 function dimaroundCmd(addr, on) {
-    return setprop(addr, "dimaround", on ? 1 : 0)
+    return setPropCmd(addr, "dim_around", on ? "1" : "0")
+}
+
+function noScreenShareCmd(addr, on) {
+    return setPropCmd(addr, "no_screen_share", on ? "1" : "0")
+}
+
+function noFocusCmd(addr, on) {
+    return setPropCmd(addr, "no_focus", on ? "1" : "0")
+}
+
+function inPlaceHideCommands(tiled) {
+    var cmds = []
+    for (var i = 0; i < (tiled || []).length; i++) {
+        var addr = tiled[i] && (tiled[i].address || tiled[i])
+        if (!addr)
+            continue
+        cmds.push(noScreenShareCmd(addr, true))
+        cmds.push(alphaCmd(addr, 0))
+        cmds.push(noFocusCmd(addr, true))
+    }
+    return cmds
+}
+
+function inPlaceShowCommands(steps) {
+    var cmds = []
+    var list = steps || []
+    for (var i = 0; i < list.length; i++) {
+        var s = list[i]
+        if (!s || !s.address)
+            continue
+        var opacity = s.fromOpacity === undefined || s.fromOpacity === null ? 1 : s.fromOpacity
+        cmds.push(noFocusCmd(s.address, false))
+        cmds.push(alphaCmd(s.address, opacity))
+        cmds.push(noScreenShareCmd(s.address, false))
+    }
+    return cmds
 }
 
 function movePixel(addr, x, y) {
@@ -108,9 +148,9 @@ function chunk(commands, size) {
 
 function moveCommands(marked) {
     var cmds = []
-    for (var i = 0; i < (marked || []).length; i++) {
-        var m = marked[i]
-        var addr = m && (m.address || m)
+    var list = floatingMarked(marked)
+    for (var i = 0; i < list.length; i++) {
+        var addr = list[i] && (list[i].address || list[i])
         if (addr)
             cmds.push(moveToCloak(addr))
     }
@@ -159,7 +199,7 @@ function dimCommands(unmarked, options) {
 
 function cloakCommands(marked, unmarked, options) {
     var opts = options || {}
-    var cmds = moveCommands(marked)
+    var cmds = moveCommands(marked).concat(inPlaceHideCommands(tiledMarked(marked)))
     if (opts.dimOthers !== false)
         cmds = cmds.concat(dimCommands(unmarked, opts))
     return cmds
@@ -214,6 +254,8 @@ function restoreCommands(plan) {
             props.push(alphaCmd(step.address, step.from === undefined ? 1 : step.from))
         else if (step.kind === "dimaround" && step.address)
             props.push(dimaroundCmd(step.address, !!step.from))
+        else if (step.kind === "inplace-hide" && step.address)
+            props = props.concat(inPlaceShowCommands([step]))
         else if (step.kind === "move" || step.kind === "catch-all-move")
             moves.push(step)
     }
@@ -248,7 +290,7 @@ function splitBatch(batch) {
 }
 
 function getpropArgv(addr, key) {
-    return ["hyprctl", "getprop", addrSpec(addr), String(key || "alpha")]
+    return ["hyprctl", "getprop", addrSpec(addr), String(key || "opacity")]
 }
 
 function parseGetprop(text) {

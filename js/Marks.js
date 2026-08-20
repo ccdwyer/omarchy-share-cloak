@@ -147,6 +147,57 @@ function toggleClass(rules, className, titlePattern) {
     return addClass(rules, className, titlePattern)
 }
 
+function escapeTitle(title) {
+    return String(title || "").replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
+}
+
+function hasStarRule(rules, className) {
+    var want = normalizeClass(className).toLowerCase()
+    var list = rules || []
+    for (var i = 0; i < list.length; i++) {
+        if (normalizeClass(list[i] && list[i]["class"]).toLowerCase() !== want)
+            continue
+        if (String(list[i].title === undefined || list[i].title === null ? ".*" : list[i].title) === ".*")
+            return true
+    }
+    return false
+}
+
+function toggleClient(rules, client, liveClients) {
+    var klass = normalizeClass(client && (client["class"] || client.className || client.class))
+    if (!klass)
+        return sanitize(rules)
+    var next = sanitize(rules)
+    if (hasStarRule(next, klass)) {
+        next = removeClass(next, klass)
+        var others = classWindows(liveClients, klass)
+        for (var i = 0; i < others.length; i++) {
+            var other = others[i]
+            if (!other || other.address === (client && client.address))
+                continue
+            next = addClass(next, klass, "^" + escapeTitle(other.title) + "$")
+        }
+        return next
+    }
+    if (isMarked(client, next)) {
+        var title = String((client && client.title) || "")
+        var out = []
+        for (var j = 0; j < next.length; j++) {
+            var r = next[j]
+            if (normalizeClass(r["class"]).toLowerCase() !== klass.toLowerCase()) {
+                out.push(r)
+                continue
+            }
+            if (matchesRule(client, r))
+                continue
+            out.push(r)
+        }
+        return out
+    }
+    var exact = String((client && client.title) || "")
+    return addClass(next, klass, exact ? "^" + escapeTitle(exact) + "$" : ".*")
+}
+
 function markedClients(clients, rules) {
     var list = clients || []
     var out = []
