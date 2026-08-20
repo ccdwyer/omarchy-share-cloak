@@ -131,3 +131,35 @@ function batchArgv(batch) {
         return null
     return ["hyprctl", "--batch", batch]
 }
+
+function splitBatch(batch) {
+    var parts = String(batch || "").split(" ; ")
+    var out = []
+    for (var i = 0; i < parts.length; i++) {
+        var s = String(parts[i] || "").trim()
+        if (s)
+            out.push(s)
+    }
+    return out
+}
+
+function getpropArgv(addr, key) {
+    return ["hyprctl", "getprop", addrSpec(addr), String(key || "alpha")]
+}
+
+function parseGetprop(text) {
+    var s = String(text || "").trim()
+    if (!s)
+        return null
+    var n = parseFloat(s)
+    if (!isNaN(n) && isFinite(n))
+        return n
+    var m = s.match(/(-?\d+(?:\.\d+)?)/)
+    if (m)
+        return parseFloat(m[1])
+    if (s === "true" || s === "yes" || s === "on")
+        return 1
+    if (s === "false" || s === "no" || s === "off")
+        return 0
+    return null
+}

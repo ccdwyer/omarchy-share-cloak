@@ -105,8 +105,32 @@ function capture(client) {
         monitor: client.monitor,
         hidden: !!client.hidden,
         pinned: !!client.pinned,
-        mapped: client.mapped !== false
+        mapped: client.mapped !== false,
+        alpha: client.alpha !== undefined && client.alpha !== null ? Number(client.alpha) : undefined,
+        dimaround: client.dimaround !== undefined && client.dimaround !== null ? Number(client.dimaround) : undefined
     }
+}
+
+function isOnCloak(client) {
+    var name = workspaceName(client)
+    return name === "special:cloak" || name === "cloak"
+}
+
+function markedStillVisible(marked, liveClients) {
+    var live = indexByAddress(liveClients)
+    var failed = []
+    var list = marked || []
+    for (var i = 0; i < list.length; i++) {
+        var addr = normalizeAddress(list[i] && (list[i].address || list[i]))
+        if (!addr)
+            continue
+        var now = live[addr]
+        if (!now)
+            continue
+        if (!isOnCloak(now))
+            failed.push(now)
+    }
+    return failed
 }
 
 function captureAll(clients) {
@@ -261,9 +285,4 @@ function specialWorkspaceNames(workspaces) {
             out.push(name)
     }
     return out
-}
-
-function isOnCloak(client) {
-    var name = workspaceName(client)
-    return name === "special:cloak" || name === "cloak"
 }

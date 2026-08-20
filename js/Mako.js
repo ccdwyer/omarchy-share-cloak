@@ -1,7 +1,10 @@
 .pragma library
 
-// mako-only DND. Modes must already exist in the user's mako config.
-// On any failure we report manager:"unmanaged" and the cloak still proceeds.
+// mako-only DND.
+// `makoctl mode` lists currently *enabled* modes, not modes configured in
+// mako/config. A DND candidate is added only when it is not already current.
+// Ownership is recorded only after a successful add; restore removes only
+// a mode this plugin added.
 
 var CANDIDATES = ["dnd", "do-not-disturb", "donotdisturb", "away", "silent", "disturb"]
 
@@ -26,6 +29,22 @@ function parseModes(text) {
     return modes
 }
 
+function parseConfigModes(text) {
+    var src = String(text || "")
+    var modes = []
+    var seen = {}
+    var re = /\[mode=([^\]]+)\]/g
+    var m
+    while ((m = re.exec(src))) {
+        var name = String(m[1] || "").trim()
+        if (!name || seen[name])
+            continue
+        seen[name] = true
+        modes.push(name)
+    }
+    return modes
+}
+
 function pickMode(available) {
     var list = available || []
     var lower = {}
@@ -38,47 +57,101 @@ function pickMode(available) {
     return ""
 }
 
-function inspect(text, exitCode) {
-    if (exitCode && Number(exitCode) !== 0 && (!text || !String(text).trim())) {
+function inList(list, mode) {
+    var want = String(mode || "").toLowerCase()
+    var rows = list || []
+    for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i]).toLowerCase() === want)
+            return true
+    }
+    return false
+}
+
+function tryModes(current, configured) {
+    var pool = CANDIDATES
+    var conf = configured || []
+    var out = []
+    var i
+    if (conf.length) {
+        pool = []
+        for (i = 0; i < CANDIDATES.length; i++) {
+            if (inList(conf, CANDIDATES[i]))
+                pool.push(pickNamed(conf, CANDIDATES[i]))
+        }
+        for (i = 0; i < conf.length; i++) {
+            if (inList(CANDIDATES, conf[i]) && !inList(pool, conf[i]))
+                pool.push(conf[i])
+        }
+    }
+    for (i = 0; i < pool.length; i++) {
+        var name = pool[i]
+        if (!name)
+            continue
+        if (inList(current, name))
+            continue
+        if (!inList(out, name))
+            out.push(name)
+    }
+    return out
+}
+
+function pickNamed(list, candidate) {
+    var want = String(candidate || "").toLowerCase()
+    for (var i = 0; i < (list || []).length; i++) {
+        if (String(list[i]).toLowerCase() === want)
+            return list[i]
+    }
+    return candidate
+}
+
+function inspect(currentText, exitCode, configText) {
+    if (exitCode && Number(exitCode) !== 0 && (!currentText || !String(currentText).trim())) {
         return {
             manager: "unmanaged",
             note: "notifications: unmanaged",
             available: [],
             current: [],
+            configured: [],
+            alreadyActive: false,
+            alreadyMode: "",
+            tryModes: [],
             applyMode: "",
+            needsAdd: false,
             ok: false
         }
     }
-    var available = parseModes(text)
-    var applyMode = pickMode(available)
-    var managed = available.length > 0 && !!applyMode
-    if (!managed && available.length > 0) {
+    var current = parseModes(currentText)
+    var configured = parseConfigModes(configText)
+    var alreadyMode = pickMode(current)
+    var tries = tryModes(current, configured)
+    var alreadyActive = !!alreadyMode
+    if (alreadyActive) {
         return {
             manager: "mako",
-            note: "notifications: unmanaged",
-            available: available,
-            current: available.slice(),
+            note: "",
+            available: current.slice(),
+            current: current,
+            configured: configured,
+            alreadyActive: true,
+            alreadyMode: alreadyMode,
+            tryModes: [],
             applyMode: "",
-            ok: false
-        }
-    }
-    if (!managed) {
-        return {
-            manager: "unmanaged",
-            note: "notifications: unmanaged",
-            available: available,
-            current: available.slice(),
-            applyMode: "",
-            ok: false
+            needsAdd: false,
+            ok: true
         }
     }
     return {
-        manager: "mako",
-        note: "",
-        available: available,
-        current: available.slice(),
-        applyMode: applyMode,
-        ok: true
+        manager: tries.length ? "mako" : "unmanaged",
+        note: tries.length ? "" : "notifications: unmanaged",
+        available: current.slice(),
+        current: current,
+        configured: configured,
+        alreadyActive: false,
+        alreadyMode: "",
+        tryModes: tries,
+        applyMode: tries.length ? tries[0] : "",
+        needsAdd: tries.length > 0,
+        ok: tries.length > 0
     }
 }
 
@@ -95,11 +168,5 @@ function restoreArgv(mode) {
 }
 
 function alreadyHas(current, mode) {
-    var list = current || []
-    var want = String(mode || "").toLowerCase()
-    for (var i = 0; i < list.length; i++) {
-        if (String(list[i]).toLowerCase() === want)
-            return true
-    }
-    return false
+    return inList(current, mode)
 }

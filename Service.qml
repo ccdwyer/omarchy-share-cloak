@@ -20,12 +20,15 @@ Item {
   property var pluginRegistry: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH") || ""
 
-  property bool autoCloak: true
-  property bool workspaceGuard: true
-  property bool dimOthers: true
-  property bool coverCards: true
+  // Host-injected from plugins[] only when the shell.json entry actually
+  // carries the key. Undefined means "do not overwrite Config".
+  property var autoCloak
+  property var workspaceGuard
+  property var dimOthers
+  property var coverCards
 
-  readonly property string pluginId: "io.github.chris.share-cloak"
+  readonly property string moduleName: "io.github.chris.share-cloak"
+  readonly property string pluginId: root.moduleName
   readonly property string pluginDir: {
     var u = String(Qt.resolvedUrl("."))
     if (u.indexOf("file://") === 0)
@@ -59,7 +62,9 @@ Item {
   property var workQueue: []
   property var workCurrent: null
   property var pendingBatches: []
-  property var pendingRestorePlan: null
+  property var pendingMarked: []
+  property var pendingMako: null
+  property var pendingGetprops: []
   property string pendingCloakReason: ""
   property bool hydrating: true
   property int uiRevision: 0
@@ -74,13 +79,33 @@ Item {
     root.uiRevision = State.revision
   }
 
-  function applyInjectedSettings() {
-    Config.applySettings({
-      autoCloak: root.autoCloak,
-      workspaceGuard: root.workspaceGuard,
-      dimOthers: root.dimOthers,
-      coverCards: root.coverCards
-    })
+  function ipcCall(method, arg) {
+    var a = arg === undefined || arg === null ? "" : String(arg)
+    Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, method, a])
+  }
+
+  // Only copy keys the host actually injected onto this Item.
+  function applyHostSettings() {
+    var s = {}
+    if (root.autoCloak !== undefined && root.autoCloak !== null)
+      s.autoCloak = root.autoCloak
+    if (root.workspaceGuard !== undefined && root.workspaceGuard !== null)
+      s.workspaceGuard = root.workspaceGuard
+    if (root.dimOthers !== undefined && root.dimOthers !== null)
+      s.dimOthers = root.dimOthers
+    if (root.coverCards !== undefined && root.coverCards !== null)
+      s.coverCards = root.coverCards
+    var n = 0
+    for (var k in s) {
+      if (s.hasOwnProperty(k))
+        n++
+    }
+    if (n)
+      Config.applySettings(s)
+    root.onSettingsChanged()
+  }
+
+  function onSettingsChanged() {
     if (!State.isCloaked())
       State.armFromAutoCloak(Config.autoCloak)
     root.publish()
@@ -259,20 +284,33 @@ Item {
     })
   }
 
+  function makoConfigPath() {
+    var xdg = Quickshell.env("XDG_CONFIG_HOME")
+    if (xdg && xdg.length)
+      return xdg + "/mako/config"
+    return root.home + "/.config/mako/config"
+  }
+
   function beginCloak(reason) {
     if (State.transactionBusy)
       return "busy"
     if (State.phase === "cloaked")
       return "already"
     State.transactionBusy = true
-    State.lastStatus = "cloaking"
+    State.enterCloaking(reason || "manual")
     root.pendingCloakReason = reason || "manual"
     root.publish()
-    enqueueWork(["hyprctl", "-j", "clients"], function(clientsText) {
+    enqueueWork(["hyprctl", "-j", "clients"], function(clientsText, clientsCode) {
+      if (Number(clientsCode) !== 0) {
+        root.abortCloak("hyprctl clients failed")
+        return
+      }
       enqueueWork(["hyprctl", "-j", "monitors"], function(monitorsText) {
         enqueueWork(["hyprctl", "-j", "workspaces"], function(wsText) {
           enqueueWork(["makoctl", "mode"], function(makoText, makoCode) {
-            root.commitCloak(root.pendingCloakReason, clientsText, monitorsText, wsText, makoText, makoCode)
+            enqueueWork(["sh", "-c", "cat \"$1\" 2>/dev/null || true", "sh", root.makoConfigPath()], function(configText) {
+              root.commitCloak(root.pendingCloakReason, clientsText, monitorsText, wsText, makoText, makoCode, configText)
+            })
           })
         })
       })
@@ -280,13 +318,14 @@ Item {
     return "ok"
   }
 
-  function commitCloak(reason, clientsText, monitorsText, wsText, makoText, makoCode) {
+  function commitCloak(reason, clientsText, monitorsText, wsText, makoText, makoCode, configText) {
     var clients = Clients.captureAll(Clients.parseClients(clientsText))
     var monitors = Clients.parseList(monitorsText)
     var workspaces = Clients.parseList(wsText)
-    var mako = Mako.inspect(makoText, makoCode)
+    var mako = Mako.inspect(makoText, makoCode, configText)
     root.lastClients = clients
     State.setClients(clients)
+    root.pendingMako = mako
 
     var safe = Clients.safeWorkspacesFromMonitors(monitors)
     if ((!safe || !safe.length) && clients.length) {
@@ -326,13 +365,12 @@ Item {
     Session.recordMoves(session, marked)
     if (Config.dimOthers)
       Session.recordDims(session, unmarked, Config.dimAlpha, Config.dimaround)
-    Session.recordMako(session, mako)
     root.session = session
+    root.pendingMarked = marked.slice()
 
-    State.setNotification(mako.manager, mako.note)
+    State.setNotification(mako.alreadyActive ? "mako" : (mako.ok ? "mako" : "unmanaged"), mako.alreadyActive ? "" : (mako.ok ? "" : mako.note))
     if (Config.coverCards)
       State.setCovers(Session.coverCards(session, safe.length ? safe[0].name : ""))
-    State.enterCloaked(reason)
     if (safe.length)
       State.setWorkspaceHidden(false, safe[0].name, safe[0].id)
     root.publish()
@@ -346,24 +384,140 @@ Item {
     })
     var batches = Hypr.chunk(cmds, 20)
     root.pendingBatches = batches.slice()
-    root.flushBatches(function() {
-      if (mako.ok && mako.applyMode && !Mako.alreadyHas(mako.current, mako.applyMode))
-        enqueueWork(Mako.applyArgv(mako.applyMode), null)
-      State.transactionBusy = false
-      State.lastStatus = "cloaked"
-      root.publish()
+    root.flushBatches(function(ok) {
+      if (!ok && marked.length) {
+        root.verifyAndFinishCloak(false)
+        return
+      }
+      root.verifyAndFinishCloak(true)
+    })
+  }
+
+  function splitRetry(commands, done) {
+    if (!commands.length) {
+      done(true)
+      return
+    }
+    var cmd = commands.shift()
+    enqueueWork(Hypr.batchArgv(cmd), function(text, code) {
+      if (Number(code) !== 0) {
+        done(false)
+        return
+      }
+      root.splitRetry(commands, done)
     })
   }
 
   function flushBatches(done) {
     if (!root.pendingBatches.length) {
       if (done)
-        done()
+        done(true)
       return
     }
     var batch = root.pendingBatches.shift()
-    enqueueWork(Hypr.batchArgv(batch), function() {
+    enqueueWork(Hypr.batchArgv(batch), function(text, code) {
+      if (Number(code) !== 0) {
+        root.splitRetry(Hypr.splitBatch(batch), function(ok) {
+          if (!ok) {
+            if (done)
+              done(false)
+            return
+          }
+          root.flushBatches(done)
+        })
+        return
+      }
       root.flushBatches(done)
+    })
+  }
+
+  function verifyAndFinishCloak(batchOk) {
+    enqueueWork(["hyprctl", "-j", "clients"], function(text, code) {
+      var live = Clients.captureAll(Clients.parseClients(text))
+      root.lastClients = live
+      State.setClients(live)
+      var leaked = Clients.markedStillVisible(root.pendingMarked, live)
+      if (Number(code) !== 0 || leaked.length) {
+        root.rollbackCloak(live, leaked.length ? "marked windows still visible" : "hyprctl verify failed")
+        return
+      }
+      if (root.session)
+        root.session.phase = "cloaked"
+      State.enterCloaked(root.pendingCloakReason)
+      State.transactionBusy = false
+      persistSession()
+      root.publish()
+      root.applyMako(root.pendingMako)
+    })
+  }
+
+  function rollbackCloak(live, reason) {
+    var plan = Session.restorePlan(root.session || Session.empty(), live || [])
+    var cmds = Hypr.restoreCommands(plan)
+    root.pendingBatches = Hypr.chunk(cmds, 20)
+    root.flushBatches(function() {
+      State.setError(reason || "cloak failed")
+      State.setToast("cloak failed — protection not active")
+      State.enterResting(Config.autoCloak, true)
+      State.overlayMode = "toast"
+      root.summonOverlay(JSON.stringify({ mode: "toast" }))
+      toastTimer.restart()
+      clearSessionFile()
+      State.transactionBusy = false
+      root.publish()
+    })
+  }
+
+  function abortCloak(reason) {
+    State.setError(reason || "cloak failed")
+    State.setToast("cloak failed — protection not active")
+    State.enterResting(Config.autoCloak, true)
+    State.overlayMode = "toast"
+    root.summonOverlay(JSON.stringify({ mode: "toast" }))
+    toastTimer.restart()
+    clearSessionFile()
+    State.transactionBusy = false
+    root.publish()
+  }
+
+  function applyMako(mako) {
+    if (!mako) {
+      State.setNotification("unmanaged", "notifications: unmanaged")
+      return
+    }
+    if (mako.alreadyActive) {
+      State.setNotification("mako", "")
+      persistSession()
+      root.publish()
+      return
+    }
+    var modes = (mako.tryModes || []).slice()
+    if (!modes.length) {
+      State.setNotification("unmanaged", "notifications: unmanaged")
+      persistSession()
+      root.publish()
+      return
+    }
+    root.tryMakoModes(modes)
+  }
+
+  function tryMakoModes(modes) {
+    if (!modes.length) {
+      State.setNotification("unmanaged", "notifications: unmanaged")
+      persistSession()
+      root.publish()
+      return
+    }
+    var mode = modes.shift()
+    enqueueWork(Mako.applyArgv(mode), function(text, code) {
+      if (Number(code) === 0) {
+        Session.recordMakoAdded(root.session, mode)
+        State.setNotification("mako", "")
+        persistSession()
+        root.publish()
+        return
+      }
+      root.tryMakoModes(modes)
     })
   }
 
@@ -378,13 +532,57 @@ Item {
     State.enterUncloaking()
     root.publish()
     enqueueWork(["hyprctl", "-j", "clients"], function(clientsText) {
-      root.commitUncloak(reason, clientsText)
+      root.gatherDimProps(reason, clientsText)
     })
     return "ok"
   }
 
-  function commitUncloak(reason, clientsText) {
+  function gatherDimProps(reason, clientsText) {
     var live = Clients.captureAll(Clients.parseClients(clientsText))
+    var need = []
+    var muts = (root.session && root.session.mutations) || []
+    var seen = {}
+    for (var i = 0; i < muts.length; i++) {
+      var m = muts[i]
+      if (!m || !m.owned || !m.address)
+        continue
+      if (m.kind !== "alpha" && m.kind !== "dimaround")
+        continue
+      var key = m.address + ":" + m.kind
+      if (seen[key])
+        continue
+      seen[key] = true
+      need.push({ address: m.address, kind: m.kind })
+    }
+    root.pendingGetprops = need
+    root.fillGetprops(live, function(enriched) {
+      root.commitUncloak(reason, enriched)
+    })
+  }
+
+  function fillGetprops(live, done) {
+    if (!root.pendingGetprops.length) {
+      done(live)
+      return
+    }
+    var job = root.pendingGetprops.shift()
+    enqueueWork(Hypr.getpropArgv(job.address, job.kind === "dimaround" ? "dimaround" : "alpha"), function(text, code) {
+      var value = Number(code) === 0 ? Hypr.parseGetprop(text) : null
+      if (value !== null) {
+        for (var i = 0; i < live.length; i++) {
+          if (live[i].address === job.address) {
+            if (job.kind === "dimaround")
+              live[i].dimaround = value
+            else
+              live[i].alpha = value
+          }
+        }
+      }
+      root.fillGetprops(live, done)
+    })
+  }
+
+  function commitUncloak(reason, live) {
     var plan = Session.restorePlan(root.session || Session.empty(), live)
     State.setUnrestorable(plan.unrestorable || [])
     var cmds = Hypr.restoreCommands(plan)
@@ -392,7 +590,7 @@ Item {
     var makoStep = null
     var steps = plan.steps || []
     for (var i = 0; i < steps.length; i++) {
-      if (steps[i] && steps[i].kind === "mako-mode")
+      if (steps[i] && steps[i].kind === "mako-mode" && steps[i].pluginAdded)
         makoStep = steps[i]
     }
     root.pendingBatches = batches.slice()
@@ -404,12 +602,32 @@ Item {
   }
 
   function finishUncloak() {
-    State.enterResting(Config.autoCloak)
-    root.hideOverlay()
+    var keep = (State.unrestorable || []).length > 0
+    var saved = keep ? State.unrestorable.slice() : []
+    var msg = State.toast
+    State.enterResting(Config.autoCloak, keep)
+    if (keep) {
+      State.setUnrestorable(saved)
+      if (msg)
+        State.setToast(msg)
+      State.overlayMode = "toast"
+      root.summonOverlay(JSON.stringify({ mode: "toast" }))
+      toastTimer.restart()
+    } else {
+      root.hideOverlay()
+    }
     clearSessionFile()
     State.transactionBusy = false
     root.publish()
     persistMarks()
+  }
+
+  function dismissToast() {
+    State.setToast("")
+    State.setUnrestorable([])
+    State.overlayMode = "onair"
+    root.hideOverlay()
+    root.publish()
   }
 
   function toggleCloak() {
@@ -545,11 +763,6 @@ Item {
   function toggle() { return root.toggleCloak() }
   function restore() { return root.beginUncloak("restore") }
 
-  onAutoCloakChanged: root.applyInjectedSettings()
-  onWorkspaceGuardChanged: root.applyInjectedSettings()
-  onDimOthersChanged: root.applyInjectedSettings()
-  onCoverCardsChanged: root.applyInjectedSettings()
-
   Process {
     id: workProc
     running: false
@@ -560,10 +773,11 @@ Item {
     onExited: {
       var text = workOut.text
       var job = root.workCurrent
+      var code = exitCode
       root.workCurrent = null
       if (job && job.done) {
         try {
-          job.done(text, exitCode)
+          job.done(text, code)
         } catch (e) {
           console.warn("share-cloak: work callback failed", e)
         }
@@ -638,12 +852,6 @@ Item {
         root.socketBackoffMs = 250
         reconnectTimer.stop()
       } else if (root.socketWanted && !root.hyprlandEventsLive) {
-        reconnectTimer.interval = root.socketBackoffMs
-        reconnectTimer.start()
-      }
-    }
-    onError: {
-      if (!root.hyprlandEventsLive) {
         reconnectTimer.interval = root.socketBackoffMs
         reconnectTimer.start()
       }
@@ -744,6 +952,13 @@ Item {
   }
 
   Timer {
+    id: toastTimer
+    interval: 4500
+    repeat: false
+    onTriggered: root.dismissToast()
+  }
+
+  Timer {
     id: liveTimer
     interval: 1000
     repeat: true
@@ -765,19 +980,19 @@ Item {
   IpcHandler {
     target: "io.github.chris.share-cloak"
 
-    function toggle(): string { return root.toggleCloak() }
-    function cloak(): string { return root.beginCloak("manual") }
-    function uncloak(): string { return root.beginUncloak("manual") }
-    function restore(): string { return root.beginUncloak("restore") }
-    function markFocused(): string { return root.markFocused() }
-    function openMarks(): string { return root.openMarks() }
-    function ping(): string { return "ok" }
-    function status(): string { return root.statusJson() }
-    function summon(): string { return root.summonOverlay(root.overlayPayload()) }
+    function toggle(arg: string): string { return root.toggleCloak() }
+    function cloak(arg: string): string { return root.beginCloak("manual") }
+    function uncloak(arg: string): string { return root.beginUncloak("manual") }
+    function restore(arg: string): string { return root.beginUncloak("restore") }
+    function markFocused(arg: string): string { return root.markFocused() }
+    function openMarks(arg: string): string { return root.openMarks() }
+    function ping(arg: string): string { return "ok" }
+    function status(arg: string): string { return root.statusJson() }
+    function summon(arg: string): string { return root.summonOverlay(arg && arg.length ? arg : root.overlayPayload()) }
   }
 
   Component.onCompleted: {
-    root.applyInjectedSettings()
+    root.applyHostSettings()
     probeWhichProc.running = true
     versionProc.running = true
     root.publish()

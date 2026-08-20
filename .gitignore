@@ -4,3 +4,8 @@ src/cloak-probe/target/
 *.swp
 .grok_impl.log
 .impl_prompt.md
+.grok_fix_r1.log
+.fix_prompt_r1.md
+.gpt_review_*
+.review_prompt.md
+.serena/

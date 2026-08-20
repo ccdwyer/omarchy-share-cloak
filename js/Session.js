@@ -117,45 +117,87 @@ function recordMoves(session, marked) {
     }
 }
 
+function priorAlpha(c) {
+    if (!c)
+        return 1
+    if (c.alpha !== undefined && c.alpha !== null && !isNaN(Number(c.alpha)))
+        return Number(c.alpha)
+    return 1
+}
+
+function priorDimaround(c) {
+    if (!c)
+        return 0
+    if (c.dimaround !== undefined && c.dimaround !== null && !isNaN(Number(c.dimaround)))
+        return Number(c.dimaround)
+    return 0
+}
+
+function approxEqual(a, b) {
+    return Math.abs(Number(a) - Number(b)) < 0.001
+}
+
+function liveAlpha(c) {
+    if (!c)
+        return null
+    if (c.alpha === undefined || c.alpha === null)
+        return null
+    var n = Number(c.alpha)
+    return isNaN(n) ? null : n
+}
+
+function liveDimaround(c) {
+    if (!c)
+        return null
+    if (c.dimaround === undefined || c.dimaround === null)
+        return null
+    var n = Number(c.dimaround)
+    return isNaN(n) ? null : n
+}
+
 function recordDims(session, unmarked, alpha, withDimaround) {
     var list = unmarked || []
+    var to = alpha
     for (var i = 0; i < list.length; i++) {
-        var c = captureClient(list[i])
+        var src = list[i]
+        var c = captureClient(src)
         if (!c || !c.address)
             continue
         addMutation(session, {
             kind: "alpha",
             owned: true,
             address: c.address,
-            from: 1,
-            to: alpha
+            from: priorAlpha(src),
+            to: to
         })
         if (withDimaround) {
             addMutation(session, {
                 kind: "dimaround",
                 owned: true,
                 address: c.address,
-                from: 0,
+                from: priorDimaround(src),
                 to: 1
             })
         }
     }
 }
 
-function recordMako(session, info) {
-    if (!info || !info.ok || !info.applyMode)
+function recordMakoAdded(session, mode) {
+    if (!session || !mode)
         return
     addMutation(session, {
         kind: "mako-mode",
         owned: true,
-        from: (info.current || []).slice(),
-        to: info.applyMode
+        pluginAdded: true,
+        from: [],
+        to: String(mode)
     })
     session.notification = {
         manager: "mako",
         owned: true,
-        previousModes: (info.current || []).slice(),
-        appliedMode: info.applyMode
+        previousModes: [],
+        appliedMode: String(mode),
+        pluginAdded: true
     }
 }
 
@@ -227,20 +269,36 @@ function reconcileWithLive(session, liveClients) {
         var m = muts[j]
         if (!m || !m.owned)
             continue
-        if (m.kind !== "move" && m.kind !== "catch-all-move")
-            continue
         var live = map[String(m.address || "").toLowerCase()]
-        if (!live)
+        if (m.kind === "move" || m.kind === "catch-all-move") {
+            if (!live)
+                continue
+            var name = ""
+            if (live.workspaceName)
+                name = String(live.workspaceName)
+            else if (live.workspace && typeof live.workspace === "object")
+                name = String(live.workspace.name || "")
+            else
+                name = String(live.workspace || "")
+            if (name !== "special:cloak" && name !== "cloak")
+                m.owned = false
             continue
-        var name = ""
-        if (live.workspaceName)
-            name = String(live.workspaceName)
-        else if (live.workspace && typeof live.workspace === "object")
-            name = String(live.workspace.name || "")
-        else
-            name = String(live.workspace || "")
-        if (name !== "special:cloak" && name !== "cloak")
-            m.owned = false
+        }
+        if (m.kind === "alpha") {
+            if (!live)
+                continue
+            var a = liveAlpha(live)
+            if (a !== null && !approxEqual(a, m.to))
+                m.owned = false
+            continue
+        }
+        if (m.kind === "dimaround") {
+            if (!live)
+                continue
+            var d = liveDimaround(live)
+            if (d !== null && !approxEqual(d, m.to))
+                m.owned = false
+        }
     }
 }
 
@@ -264,11 +322,16 @@ function restorePlan(session, liveClients) {
         if (!m || !m.owned)
             continue
         if (m.kind === "mako-mode") {
+            if (!m.pluginAdded && m.owned === false)
+                continue
+            if (!m.pluginAdded)
+                continue
             steps.push({
                 kind: "mako-mode",
                 from: m.from,
                 to: m.to,
-                address: ""
+                address: "",
+                pluginAdded: true
             })
             continue
         }

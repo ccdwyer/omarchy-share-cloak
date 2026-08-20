@@ -9,6 +9,8 @@ BarWidget {
   id: root
   moduleName: "io.github.chris.share-cloak"
 
+  // Host-injected from the bar.layout entry. This is the authoritative
+  // settings source for the bar-widget schema keys.
   property bool autoCloak: true
   property bool workspaceGuard: true
   property bool dimOthers: true
@@ -19,13 +21,11 @@ BarWidget {
   property string phase: "idle"
 
   readonly property var cloakService: {
-    if (bar && bar.shell && typeof bar.shell.firstPartyServiceFor === "function") {
-      var s = bar.shell.firstPartyServiceFor(root.moduleName)
-      if (s)
-        return s
+    if (bar && bar.pluginRegistry && typeof bar.pluginRegistry.serviceFor === "function") {
+      var a = bar.pluginRegistry.serviceFor(root.moduleName)
+      if (a)
+        return a
     }
-    if (bar && bar.shell && typeof bar.shell.serviceFor === "function")
-      return bar.shell.serviceFor(root.moduleName)
     return null
   }
 
@@ -36,8 +36,8 @@ BarWidget {
       dimOthers: root.dimOthers,
       coverCards: root.coverCards
     })
-    if (cloakService && typeof cloakService.applyInjectedSettings === "function")
-      cloakService.applyInjectedSettings()
+    if (cloakService && typeof cloakService.onSettingsChanged === "function")
+      cloakService.onSettingsChanged()
   }
 
   function refresh() {
@@ -56,7 +56,7 @@ BarWidget {
       bar.shell.call(root.moduleName, "toggle", "")
       return
     }
-    Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, "toggle"])
+    Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, "toggle", ""])
   }
 
   function openMarks() {
@@ -68,7 +68,7 @@ BarWidget {
       bar.shell.call(root.moduleName, "openMarks", "")
       return
     }
-    Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, "openMarks"])
+    Quickshell.execDetached(["omarchy-shell", "shell", "call", root.moduleName, "openMarks", ""])
   }
 
   function tooltip() {

@@ -17,7 +17,8 @@ Item {
   property var manifest: null
   property var pluginRegistry: null
   property string omarchyPath: Quickshell.env("OMARCHY_PATH") || ""
-  property string pluginId: "io.github.chris.share-cloak"
+  readonly property string moduleName: "io.github.chris.share-cloak"
+  property string pluginId: root.moduleName
 
   property bool opened: false
   property string mode: "onair"
@@ -54,10 +55,11 @@ Item {
     return false
   }
   readonly property int motionMs: reduceMotion ? 0 : 200
-  readonly property bool showOnAir: root.opened && (root.phase === "cloaked" || root.phase === "uncloaking" || root.pendingRestore)
+  readonly property bool showOnAir: root.opened && (root.phase === "cloaked" || root.phase === "uncloaking" || root.phase === "cloaking" || root.pendingRestore)
   readonly property bool showPlate: root.showOnAir && !root.windowShare
   readonly property bool showCovers: root.showOnAir && Config.coverCards && !root.windowShare && !root.workspaceHidden
   readonly property bool showMarks: root.opened && root.mode === "marks"
+  readonly property bool showToast: root.opened && root.toast && root.toast.length && (root.mode === "toast" || !root.showOnAir)
   readonly property bool clickThrough: root.showOnAir && !root.showMarks
 
   function open(payloadJson) {
@@ -93,24 +95,15 @@ Item {
 
   function serviceRef() {
     if (pluginRegistry && typeof pluginRegistry.serviceFor === "function") {
-      var a = pluginRegistry.serviceFor(root.pluginId)
+      var a = pluginRegistry.serviceFor(root.moduleName)
       if (a)
         return a
-    }
-    if (shell && typeof shell.serviceFor === "function") {
-      var b = shell.serviceFor(root.pluginId)
-      if (b)
-        return b
-    }
-    if (shell && typeof shell.firstPartyServiceFor === "function") {
-      var c = shell.firstPartyServiceFor(root.pluginId)
-      if (c)
-        return c
     }
     return null
   }
 
   function callService(method, arg) {
+    var a = arg === undefined || arg === null ? "" : String(arg)
     var svc = root.serviceRef()
     if (svc) {
       if (method === "toggle" && typeof svc.toggleCloak === "function")
@@ -120,18 +113,15 @@ Item {
       if (method === "restore" && typeof svc.beginUncloak === "function")
         return svc.beginUncloak("restore")
       if (method === "toggleMark" && typeof svc.toggleMark === "function")
-        return svc.toggleMark(arg)
+        return svc.toggleMark(a)
       if (method === "markFocused" && typeof svc.markFocused === "function")
         return svc.markFocused()
     }
     if (shell && typeof shell.call === "function") {
-      shell.call(root.pluginId, method, arg === undefined || arg === null ? "" : String(arg))
+      shell.call(root.moduleName, method, a)
       return "ok"
     }
-    var cmd = ["omarchy-shell", "shell", "call", root.pluginId, method]
-    if (arg !== undefined && arg !== null && String(arg).length)
-      cmd.push(String(arg))
-    ipcProc.command = cmd
+    ipcProc.command = ["omarchy-shell", "shell", "call", root.moduleName, method, a]
     ipcProc.running = true
     return "queued"
   }
@@ -328,19 +318,52 @@ Item {
       anchors.bottom: parent.bottom
       anchors.bottomMargin: Style.gapsOut + Style.space(16)
       height: Style.space(28)
-      width: toastText.implicitWidth + Style.space(20)
+      width: onAirToastText.implicitWidth + Style.space(20)
       radius: height / 2
       color: root.background
       border.color: root.border
       border.width: 1
 
       Text {
-        id: toastText
+        id: onAirToastText
         anchors.centerIn: parent
         text: root.toast
         color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
+      }
+    }
+  }
+
+  PanelWindow {
+    id: toastPanel
+    visible: root.showToast
+    anchors { top: true; bottom: true; left: true; right: true }
+    color: "transparent"
+    WlrLayershell.namespace: "share-cloak-toast"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    exclusionMode: ExclusionMode.Ignore
+
+    Rectangle {
+      anchors.horizontalCenter: parent.horizontalCenter
+      anchors.bottom: parent.bottom
+      anchors.bottomMargin: Style.gapsOut + Style.space(16)
+      height: Style.space(32)
+      width: toastText.implicitWidth + Style.space(24)
+      radius: height / 2
+      color: root.background
+      border.color: root.accent
+      border.width: 1
+
+      Text {
+        id: toastText
+        anchors.centerIn: parent
+        text: root.toast
+        color: root.accent
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
       }
     }
   }

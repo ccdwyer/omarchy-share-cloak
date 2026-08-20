@@ -5,6 +5,7 @@
 
 var PHASE_IDLE = "idle"
 var PHASE_ARMED = "armed"
+var PHASE_CLOAKING = "cloaking"
 var PHASE_CLOAKED = "cloaked"
 var PHASE_UNCLOAKING = "uncloaking"
 
@@ -61,9 +62,11 @@ function bump() {
 }
 
 function barState() {
-    if (phase === PHASE_CLOAKED || phase === PHASE_UNCLOAKING)
+    if (phase === PHASE_CLOAKED || phase === PHASE_UNCLOAKING || phase === PHASE_CLOAKING)
         return "onair"
     if (pendingRestore)
+        return "restore"
+    if (toast && toast.length && unrestorable && unrestorable.length)
         return "restore"
     if (phase === PHASE_ARMED)
         return "armed"
@@ -137,6 +140,15 @@ function setShare(active, kind, source) {
         bump()
 }
 
+function enterCloaking(reason) {
+    phase = PHASE_CLOAKING
+    lastStatus = "cloaking"
+    toast = ""
+    if (reason)
+        shareSource = shareSource || reason
+    bump()
+}
+
 function enterCloaked(reason) {
     phase = PHASE_CLOAKED
     lastStatus = "cloaked"
@@ -154,16 +166,18 @@ function enterUncloaking() {
     bump()
 }
 
-function enterResting(autoCloak) {
+function enterResting(autoCloak, keepToast) {
     phase = autoCloak ? PHASE_ARMED : PHASE_IDLE
-    lastStatus = "idle"
+    lastStatus = keepToast ? "toast" : "idle"
     workspaceHidden = false
     windowShareWarned = shareKind === "window"
     pendingRestore = false
-    toast = ""
     coverCards = []
-    unrestorable = []
     transactionBusy = false
+    if (!keepToast) {
+        toast = ""
+        unrestorable = []
+    }
     bump()
 }
 
@@ -228,7 +242,7 @@ function setError(msg) {
 }
 
 function isCloaked() {
-    return phase === PHASE_CLOAKED || phase === PHASE_UNCLOAKING
+    return phase === PHASE_CLOAKED || phase === PHASE_UNCLOAKING || phase === PHASE_CLOAKING
 }
 
 function chipLabel() {
@@ -249,12 +263,16 @@ function overlayHeadline() {
         return "workspace hidden while presenting — Super+F9 to uncloak"
     if (windowShareWarned && shareKind === "window")
         return "WINDOW SHARE — Cloak protects full-screen shares"
+    if (phase === PHASE_CLOAKING)
+        return "cloaking…"
     if (phase === PHASE_CLOAKED || phase === PHASE_UNCLOAKING) {
         var base = "CLOAKED · Super+F9 to uncloak"
         if (notificationNote)
             return base + " · " + notificationNote
         return base
     }
+    if (toast)
+        return toast
     return "Share Cloak"
 }
 

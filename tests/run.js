@@ -267,25 +267,47 @@ test("hypr: restore floating geometry after move", () => {
   assert.ok(batch.indexOf("resizewindowpixel exact 300 200,address:0xabc") >= 0)
 })
 
-test("mako: picks dnd when listed", () => {
-  const info = Mako.inspect(fixture("mako-modes-default.txt"), 0)
+test("mako: current dnd is already-active, no add, no ownership", () => {
+  const info = Mako.inspect(fixture("mako-modes-default.txt"), 0, "")
   assert.strictEqual(info.ok, true)
-  assert.strictEqual(info.manager, "mako")
+  assert.strictEqual(info.alreadyActive, true)
+  assert.strictEqual(info.needsAdd, false)
+  assert.strictEqual(info.applyMode, "")
+  assert.strictEqual(info.tryModes.length, 0)
+})
+
+test("mako: configured dnd not current is a candidate to add", () => {
+  const info = Mako.inspect(fixture("mako-modes-none.txt"), 0, fixture("mako-config-dnd.txt"))
+  assert.strictEqual(info.ok, true)
+  assert.strictEqual(info.alreadyActive, false)
+  assert.strictEqual(info.needsAdd, true)
   assert.strictEqual(info.applyMode, "dnd")
+  assert.ok(info.tryModes.indexOf("dnd") >= 0)
   assert.strictEqual(JSON.stringify(Mako.applyArgv("dnd")), JSON.stringify(["makoctl", "mode", "-a", "dnd"]))
   assert.strictEqual(JSON.stringify(Mako.restoreArgv("dnd")), JSON.stringify(["makoctl", "mode", "-r", "dnd"]))
 })
 
-test("mako: missing dnd mode is unmanaged note", () => {
-  const info = Mako.inspect(fixture("mako-modes-none.txt"), 0)
-  assert.strictEqual(info.ok, false)
-  assert.ok(info.note.indexOf("unmanaged") >= 0)
+test("mako: no current dnd still tries known candidates", () => {
+  const info = Mako.inspect(fixture("mako-modes-none.txt"), 0, "")
+  assert.strictEqual(info.needsAdd, true)
+  assert.ok(info.tryModes.length > 0)
 })
 
 test("mako: missing binary is unmanaged", () => {
   const info = Mako.inspect("", 127)
   assert.strictEqual(info.manager, "unmanaged")
   assert.strictEqual(info.ok, false)
+  assert.strictEqual(info.needsAdd, false)
+})
+
+test("mako: restore only a plugin-added mode", () => {
+  const session = Session.create({ clients: [] })
+  Session.recordMakoAdded(session, "dnd")
+  const plan = Session.restorePlan(session, [])
+  const mako = plan.steps.filter((s) => s.kind === "mako-mode")
+  assert.strictEqual(mako.length, 1)
+  assert.strictEqual(mako[0].pluginAdded, true)
+  assert.strictEqual(mako[0].to, "dnd")
 })
 
 test("config: autoCloak default ON", () => {
@@ -396,30 +418,212 @@ test("session: cover cards only for owned moves on the current workspace", () =>
   assert.strictEqual(Session.coverCards(session, "9").length, 0)
 })
 
-test("round-trip soak sketch: cloak then restore plan yields original workspaces", () => {
-  const original = Clients.captureAll(jsonFix("clients-messy.json"))
-  const marks = jsonFix("marks.json").marks
-  const session = Session.create({ clients: original, safeWorkspaces: [{ id: 1, name: "1" }] })
-  Session.recordMoves(session, Marks.markedClients(original, marks))
-  const cloaked = original.map((c) => {
-    const copy = JSON.parse(JSON.stringify(c))
-    if (Marks.isMarked(c, marks)) {
-      copy.workspaceName = "special:cloak"
-      copy.workspace = { id: -98, name: "special:cloak" }
-    }
-    return copy
-  })
-  const plan = Session.restorePlan(session, cloaked)
-  const restoredName = {}
-  plan.steps
-    .filter((s) => s.kind === "move")
-    .forEach((s) => {
-      restoredName[s.address] = s.fromWorkspace
+test("settings: empty apply does not overwrite widget false", () => {
+  Config.applySettings({ autoCloak: false, dimOthers: false, coverCards: false, workspaceGuard: false })
+  Config.applySettings({})
+  const snap = Config.snapshot()
+  assert.strictEqual(snap.autoCloak, false)
+  assert.strictEqual(snap.dimOthers, false)
+  assert.strictEqual(snap.coverCards, false)
+  assert.strictEqual(snap.workspaceGuard, false)
+})
+
+test("session: dim snapshots prior alpha and drops ownership when live differs", () => {
+  const unmarked = [{ address: "0xabc", class: "firefox", title: "x", alpha: 0.4, workspaceName: "1" }]
+  const session = Session.create({ clients: unmarked })
+  Session.recordDims(session, unmarked, 0.85, false)
+  const dim = session.mutations.filter((m) => m.kind === "alpha")[0]
+  assert.strictEqual(dim.from, 0.4)
+  assert.strictEqual(dim.to, 0.85)
+  const stillOurs = Session.restorePlan(session, [{ address: "0xabc", alpha: 0.85, workspace: { id: 1, name: "1" } }])
+  assert.strictEqual(stillOurs.steps.filter((s) => s.kind === "alpha").length, 1)
+  const session2 = Session.create({ clients: unmarked })
+  Session.recordDims(session2, unmarked, 0.85, false)
+  const userChanged = Session.restorePlan(session2, [{ address: "0xabc", alpha: 0.2, workspace: { id: 1, name: "1" } }])
+  assert.strictEqual(userChanged.steps.filter((s) => s.kind === "alpha").length, 0)
+})
+
+test("clients: markedStillVisible catches a failed cloak move", () => {
+  const marked = Clients.captureAll(jsonFix("clients-messy.json")).filter((c) => c.class === "Signal")
+  const leaked = Clients.markedStillVisible(marked, jsonFix("clients-messy.json"))
+  assert.strictEqual(leaked.length, 1)
+  const hidden = Clients.markedStillVisible(marked, jsonFix("clients-cloaked.json"))
+  assert.strictEqual(hidden.length, 0)
+})
+
+test("state: unrestorable toast survives enterResting(keepToast)", () => {
+  State.setUnrestorable([{ address: "0x1", reason: "gone" }])
+  var snap = State.snapshot()
+  assert.ok(snap.toast.indexOf("could not be restored") >= 0)
+  State.enterResting(true, true)
+  snap = State.snapshot()
+  assert.ok(snap.unrestorable.length === 1)
+  assert.ok(snap.toast.length > 0)
+  State.enterResting(true, false)
+  snap = State.snapshot()
+  assert.strictEqual(snap.unrestorable.length, 0)
+})
+
+test("hypr: parseGetprop and splitBatch", () => {
+  assert.strictEqual(Hypr.parseGetprop("0.85"), 0.85)
+  assert.strictEqual(Hypr.parseGetprop("alpha = 1"), 1)
+  const parts = Hypr.splitBatch("dispatch a ; setprop b alpha 0.85")
+  assert.strictEqual(parts.length, 2)
+})
+
+function randInt(n) {
+  return Math.floor(Math.random() * n)
+}
+
+function randomClients(seed, n) {
+  const out = []
+  for (let i = 0; i < n; i++) {
+    const addr = "0x" + (0x1000 + seed * 50 + i).toString(16)
+    const ws = 1 + (i % 3)
+    out.push({
+      address: addr,
+      class: i % 4 === 0 ? "Signal" : i % 4 === 1 ? "Code" : "firefox",
+      title: "win-" + i,
+      workspace: { id: ws, name: String(ws) },
+      workspaceId: ws,
+      workspaceName: String(ws),
+      at: [i * 10, i * 8],
+      size: [400, 300],
+      floating: i % 5 === 0,
+      fullscreen: 0,
+      monitor: 0,
+      pinned: false,
+      alpha: 1,
+      dimaround: 0
     })
-  original.forEach((c) => {
-    if (Marks.isMarked(c, marks))
-      assert.strictEqual(restoredName[c.address], c.workspaceName)
+  }
+  return out
+}
+
+function applyCloakSim(clients, session) {
+  const byAddr = {}
+  clients.forEach((c) => {
+    byAddr[c.address] = JSON.parse(JSON.stringify(c))
   })
+  session.mutations.forEach((m) => {
+    if (!m.owned)
+      return
+    const live = byAddr[m.address]
+    if (!live)
+      return
+    if (m.kind === "move" || m.kind === "catch-all-move") {
+      live.workspace = { id: -98, name: "special:cloak" }
+      live.workspaceName = "special:cloak"
+      live.workspaceId = -98
+    }
+    if (m.kind === "alpha")
+      live.alpha = m.to
+    if (m.kind === "dimaround")
+      live.dimaround = m.to
+  })
+  return Object.keys(byAddr).map((k) => byAddr[k])
+}
+
+function applyRestoreSim(clients, plan) {
+  const byAddr = {}
+  clients.forEach((c) => {
+    byAddr[c.address] = JSON.parse(JSON.stringify(c))
+  })
+  plan.steps.forEach((s) => {
+    const live = byAddr[s.address]
+    if (!live)
+      return
+    if (s.kind === "move" || s.kind === "catch-all-move") {
+      live.workspace = { id: s.fromWorkspaceId || Number(s.fromWorkspace) || 1, name: s.fromWorkspace }
+      live.workspaceName = s.fromWorkspace
+      live.workspaceId = s.fromWorkspaceId || Number(s.fromWorkspace) || 1
+    }
+    if (s.kind === "alpha")
+      live.alpha = s.from
+    if (s.kind === "dimaround")
+      live.dimaround = s.from
+  })
+  return Object.keys(byAddr).map((k) => byAddr[k])
+}
+
+test("round-trip soak: 200 randomized cloak/uncloak cycles with ownership", () => {
+  const marks = [
+    { class: "Signal", title: ".*" },
+    { class: "Code", title: ".*" }
+  ]
+  for (let cycle = 0; cycle < 200; cycle++) {
+    const n = 3 + (cycle % 6)
+    const original = randomClients(cycle + 1, n)
+    const session = Session.create({
+      clients: original,
+      safeWorkspaces: [{ id: 1, name: "1" }]
+    })
+    const marked = Marks.markedClients(original, marks)
+    const unmarked = Marks.unmarkedClients(original, marks)
+    Session.recordMoves(session, marked)
+    Session.recordDims(session, unmarked, 0.85, false)
+    if (cycle % 7 === 0 && marked.length) {
+      Session.recordCatchAll(session, {
+        address: "0xcafe" + cycle.toString(16),
+        class: "Signal",
+        title: "dialog",
+        workspace: "1"
+      })
+    }
+    let live = applyCloakSim(original, session)
+    const leaked = Clients.markedStillVisible(marked, live)
+    assert.strictEqual(leaked.length, 0, "cycle " + cycle + " leaked marked windows")
+
+    if (cycle % 5 === 0 && marked.length) {
+      const victim = marked[0]
+      live = live.map((c) => {
+        if (c.address !== victim.address)
+          return c
+        const copy = JSON.parse(JSON.stringify(c))
+        copy.workspace = { id: 2, name: "2" }
+        copy.workspaceName = "2"
+        copy.workspaceId = 2
+        return copy
+      })
+    }
+    if (cycle % 6 === 0 && unmarked.length) {
+      const u = unmarked[0]
+      live = live.map((c) => {
+        if (c.address !== u.address)
+          return c
+        const copy = JSON.parse(JSON.stringify(c))
+        copy.alpha = 0.11
+        return copy
+      })
+    }
+    if (cycle % 11 === 0 && live.length) {
+      live = live.filter((_, i) => i !== 0)
+    }
+
+    const plan = Session.restorePlan(session, live)
+    const restored = applyRestoreSim(live, plan)
+    const restoredMap = {}
+    restored.forEach((c) => {
+      restoredMap[c.address] = c
+    })
+    original.forEach((c) => {
+      const now = restoredMap[c.address]
+      if (!now)
+        return
+      const wasUserMoved = cycle % 5 === 0 && marked[0] && c.address === marked[0].address
+      const wasUserDimmed = cycle % 6 === 0 && unmarked[0] && c.address === unmarked[0].address
+      if (wasUserMoved) {
+        assert.strictEqual(now.workspaceName, "2", "cycle " + cycle + " user move preserved")
+        return
+      }
+      if (Marks.isMarked(c, marks))
+        assert.strictEqual(now.workspaceName, c.workspaceName, "cycle " + cycle + " marked round-trip")
+      if (wasUserDimmed)
+        assert.strictEqual(now.alpha, 0.11, "cycle " + cycle + " user dim preserved")
+      else if (!Marks.isMarked(c, marks))
+        assert.strictEqual(now.alpha, 1, "cycle " + cycle + " dim restored")
+    })
+  }
 })
 
 function runProbe(args, stdin) {
