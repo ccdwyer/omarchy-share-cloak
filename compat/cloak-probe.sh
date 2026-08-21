@@ -16,26 +16,54 @@ default_state_dir() {
   fi
 }
 
+is_symlink() {
+  [ -L "$1" ]
+}
+
 secure_path() {
   path="$1"
+  if is_symlink "$path"; then
+    printf '{"ok":false,"error":"refusing symlink"}\n'
+    return 1
+  fi
   parent=$(dirname "$path")
-  if [ -d "$parent" ]; then
+  if is_symlink "$parent"; then
+    printf '{"ok":false,"error":"refusing symlink directory"}\n'
+    return 1
+  fi
+  if [ -d "$parent" ] && ! is_symlink "$parent"; then
     chmod 700 "$parent" 2>/dev/null || true
   fi
-  if [ -e "$path" ]; then
+  if [ -e "$path" ] && ! is_symlink "$path"; then
     chmod 600 "$path" 2>/dev/null || true
   fi
 }
 
 cmd_init_state() {
   dir="${1:-$(default_state_dir)}"
+  if is_symlink "$dir"; then
+    printf '{"ok":false,"error":"refusing symlink state dir"}\n'
+    return 1
+  fi
   mkdir -p "$dir"
   chmod 700 "$dir" 2>/dev/null || true
-  if [ ! -f "$dir/session.json" ]; then
-    printf '{}\n' > "$dir/session.json"
+  if is_symlink "$dir/session.json"; then
+    printf '{"ok":false,"error":"refusing symlink session.json"}\n'
+    return 1
   fi
-  if [ ! -f "$dir/marks.json" ]; then
-    printf '{\n  "version": 1,\n  "marks": []\n}\n' > "$dir/marks.json"
+  if [ ! -e "$dir/session.json" ]; then
+    tmp=$(mktemp "$dir/.cloak.XXXXXX") || return 1
+    printf '{}\n' > "$tmp"
+    mv -f "$tmp" "$dir/session.json" || return 1
+  fi
+  if is_symlink "$dir/marks.json"; then
+    printf '{"ok":false,"error":"refusing symlink marks.json"}\n'
+    return 1
+  fi
+  if [ ! -e "$dir/marks.json" ]; then
+    tmp=$(mktemp "$dir/.cloak.XXXXXX") || return 1
+    printf '{\n  "version": 1,\n  "marks": []\n}\n' > "$tmp"
+    mv -f "$tmp" "$dir/marks.json" || return 1
   fi
   chmod 600 "$dir/session.json" "$dir/marks.json" 2>/dev/null || true
   printf '{"ok":true,"dir":"%s"}\n' "$(json_escape "$dir")"

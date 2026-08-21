@@ -291,6 +291,7 @@ Item {
           horizontalAlignment: Text.AlignHCenter
           wrapMode: Text.Wrap
           text: modelData.className || ""
+          textFormat: Text.PlainText
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.5)
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -524,6 +525,7 @@ Item {
                     width: parent.width - Style.space(36)
                     Text {
                       text: modelData.className + (modelData.floating ? "" : "  tiled")
+                      textFormat: Text.PlainText
                       color: index === root.selectedIndex ? Color.menu.selectedText : root.foreground
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.body
@@ -532,6 +534,7 @@ Item {
                     }
                     Text {
                       text: modelData.title
+                      textFormat: Text.PlainText
                       color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.55)
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
