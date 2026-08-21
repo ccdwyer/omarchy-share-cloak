@@ -12,3 +12,5 @@ dist/
 .impl_prompt.md
 .code-review-graph/
 .serena/
+__pycache__/
+*.pyc
